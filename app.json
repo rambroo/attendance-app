@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "Attendance",
+    "slug": "attendance-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A237E"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.techniti.attendance",
+      "infoPlist": {
+        "NSCameraUsageDescription": "The attendance app needs camera access to take a selfie for punch verification.",
+        "NSLocationWhenInUseUsageDescription": "The attendance app needs your location to record where you punch in or out."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A237E"
+      },
+      "package": "com.techniti.attendance",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Attendance to access your camera for selfie verification."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Attendance to access your location when punching in/out."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3a539058-644e-4ed0-acad-6f6a59b27907"
+      }
+    },
+    "owner": "rambroo"
+  }
+}
