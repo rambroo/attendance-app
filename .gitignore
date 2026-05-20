@@ -67,3 +67,6 @@ ios/
 
 # EAS
 .easignore.local
+
+# Code analysis (graphify)
+graphify-out/
