@@ -282,6 +282,40 @@ export const createCheckin = async (employeeId, logType, options = {}) => {
 
 // ── Attendance Records ────────────────────────────────────────────────────────
 
+// Fetch all attendance records for a specific month (used by the calendar view).
+export const getMonthAttendance = async (employeeId, year, month) => {
+  const mm         = String(month).padStart(2, '0');
+  const firstDay   = `${year}-${mm}-01`;
+  const lastDay    = formatDate(new Date(year, month, 0)); // new Date(y, m, 0) = last day of month
+  const CACHE_KEY  = `attendance_cal_${employeeId}_${year}_${mm}`;
+  try {
+    const response = await apiClient.get('/resource/Attendance', {
+      params: {
+        filters: JSON.stringify([
+          ['employee',        '=',       employeeId],
+          ['attendance_date', 'between', [firstDay, lastDay]],
+          ['docstatus',       '!=',      2],
+        ]),
+        fields: JSON.stringify([
+          'name', 'attendance_date', 'status',
+          'in_time', 'out_time', 'working_hours',
+          'late_entry', 'early_exit',
+        ]),
+        order_by: 'attendance_date asc',
+        limit: 31,
+      },
+    });
+    const data = response.data.data || [];
+    setCache(CACHE_KEY, data);
+    return data;
+  } catch (error) {
+    if (error.sessionExpired) throw sessionExpiredError();
+    const cached = await getCache(CACHE_KEY);
+    if (cached) return cached;
+    throw error;
+  }
+};
+
 export const getAttendanceHistory = async (employeeId, limit = 30) => {
   const CACHE_KEY = `attendance_history_${employeeId}`;
   try {
