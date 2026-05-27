@@ -9,11 +9,12 @@ import { getSiteLabel } from '../utils/siteConfig';
 import { C } from '../utils/theme';
 
 const LoginScreen = ({ onLoginSuccess, onChangeSite }) => {
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading]   = useState(false);
-  const [error, setError]       = useState('');
-  const [siteLabel, setSiteLabel] = useState('');
+  const [email, setEmail]           = useState('');
+  const [password, setPassword]     = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState('');
+  const [siteLabel, setSiteLabel]   = useState('');
 
   useEffect(() => {
     getSiteLabel().then((l) => setSiteLabel(l || ''));
@@ -86,18 +87,28 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite }) => {
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholderTextColor={C.textMuted}
-              returnKeyType="done"
-              onSubmitEditing={handleLogin}
-            />
+            <View style={styles.passwordRow}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Enter your password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholderTextColor={C.textMuted}
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+              />
+              <TouchableOpacity
+                style={styles.eyeBtn}
+                onPress={() => setShowPassword(v => !v)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.eyeIcon}>{showPassword ? '🙈' : '👁️'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {error ? (
@@ -173,6 +184,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 13,
     fontSize: 15, color: C.textPrimary, backgroundColor: C.bg,
   },
+  passwordRow: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1.5, borderColor: C.border, borderRadius: 12,
+    backgroundColor: C.bg,
+  },
+  passwordInput: {
+    flex: 1, paddingHorizontal: 14, paddingVertical: 13,
+    fontSize: 15, color: C.textPrimary,
+  },
+  eyeBtn:  { paddingHorizontal: 14 },
+  eyeIcon: { fontSize: 18 },
 
   errorBox: {
     backgroundColor: C.errorLight, borderRadius: 10, padding: 12,
