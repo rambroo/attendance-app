@@ -215,7 +215,7 @@ const uploadSelfieGetUrl = async (photo) => {
   const filename = `selfie_${Date.now()}.jpg`;
   const formData = new FormData();
   formData.append('file', { uri: photo.uri, type: 'image/jpeg', name: filename });
-  formData.append('is_private', '1');
+  formData.append('is_private', '0');   // public — Image on Android can't load private files (Cookie stripped by OkHttp)
   formData.append('folder', 'Home/Attachments');
 
   const resp = await fetch(`${siteUrl}/api/method/upload_file`, {
@@ -313,6 +313,70 @@ export const getMonthAttendance = async (employeeId, year, month) => {
     const cached = await getCache(CACHE_KEY);
     if (cached) return cached;
     throw error;
+  }
+};
+
+// Fetch Employee Checkin records for a month, grouped by date.
+// Used alongside getMonthAttendance so the calendar shows punch activity
+// even before Frappe's Auto Attendance has generated Attendance records.
+// Full checkin details for a single day including selfie URL — used by the day-detail modal.
+export const getDateCheckins = async (employeeId, dateStr) => {
+  try {
+    const response = await apiClient.get('/resource/Employee Checkin', {
+      params: {
+        filters: JSON.stringify([
+          ['employee', '=', employeeId],
+          ['time', 'between', [`${dateStr} 00:00:00`, `${dateStr} 23:59:59`]],
+        ]),
+        fields: JSON.stringify([
+          'name', 'log_type', 'time',
+          'custom_selfie_image', 'shift',
+          'custom_geofence_status', 'custom_matched_location', 'custom_distance_meters',
+          'latitude', 'longitude',
+        ]),
+        order_by: 'time asc',
+        limit: 20,
+      },
+    });
+    return response.data.data || [];
+  } catch (error) {
+    if (error.sessionExpired) throw sessionExpiredError();
+    return [];
+  }
+};
+
+export const getMonthCheckins = async (employeeId, year, month) => {
+  const mm       = String(month).padStart(2, '0');
+  const firstDay = `${year}-${mm}-01`;
+  const lastDay  = formatDate(new Date(year, month, 0));
+  const CACHE_KEY = `checkins_cal_${employeeId}_${year}_${mm}`;
+  try {
+    const response = await apiClient.get('/resource/Employee Checkin', {
+      params: {
+        filters: JSON.stringify([
+          ['employee', '=', employeeId],
+          ['time', 'between', [`${firstDay} 00:00:00`, `${lastDay} 23:59:59`]],
+        ]),
+        fields: JSON.stringify(['name', 'time', 'log_type']),
+        order_by: 'time asc',
+        limit: 200,
+      },
+    });
+    const data = response.data.data || [];
+    setCache(CACHE_KEY, data);
+    // Group by date string (YYYY-MM-DD)
+    const byDate = {};
+    data.forEach((c) => {
+      const dateStr = c.time.slice(0, 10);
+      if (!byDate[dateStr]) byDate[dateStr] = [];
+      byDate[dateStr].push(c);
+    });
+    return byDate;
+  } catch (error) {
+    if (error.sessionExpired) throw sessionExpiredError();
+    const cached = await getCache(CACHE_KEY);
+    if (cached) return cached;
+    return {};
   }
 };
 
