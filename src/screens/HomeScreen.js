@@ -121,7 +121,7 @@ const PunchButton = memo(({ isPunchIn, onPress, disabled }) => {
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-const HomeScreen = ({ onLogout }) => {
+const HomeScreen = ({ onLogout, onSessionExpired }) => {
   const employeeRef = useRef(null); // avoids stale-closure in loadData
 
   const [employee, setEmployee]         = useState(null);
@@ -140,12 +140,9 @@ const HomeScreen = ({ onLogout }) => {
   }, []);
 
   const handleSessionExpired = useCallback(() => {
-    Alert.alert(
-      'Session Expired',
-      'Your session has expired. Please log in again.',
-      [{ text: 'OK', onPress: onLogout }]
-    );
-  }, [onLogout]);
+    // Try silent re-login via App.js; only shows login screen if that fails.
+    if (onSessionExpired) onSessionExpired();
+  }, [onSessionExpired]);
 
   const loadData = useCallback(async (showLoader = true) => {
     setError('');

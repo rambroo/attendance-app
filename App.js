@@ -14,7 +14,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import SiteSetupScreen from './src/screens/SiteSetupScreen';
-import { isAuthenticated, logout } from './src/api/authApi';
+import { isAuthenticated, logout, silentReLogin } from './src/api/authApi';
 import { isSiteConfigured, clearSiteConfig } from './src/utils/siteConfig';
 import { C } from './src/utils/theme';
 
@@ -48,7 +48,14 @@ export default function App() {
           isAuthenticated(),
         ]);
         setSiteReady(siteOk);
-        setLoggedIn(authOk && siteOk); // logged-in only makes sense if site is set
+
+        if (authOk && siteOk) {
+          setLoggedIn(true);
+        } else if (siteOk && !authOk) {
+          // Session gone (server restart / expiry) — try re-login silently
+          const reLoggedIn = await silentReLogin();
+          setLoggedIn(reLoggedIn);
+        }
       } catch (e) {
         console.warn('Init error:', e);
       } finally {
@@ -94,6 +101,16 @@ export default function App() {
   const handleLoginSuccess = useCallback(() => {
     setLoggedIn(true);
     setLoginKey((k) => k + 1);
+  }, []);
+
+  // Called when an API response signals the session expired.
+  // Tries silent re-login first; only falls back to login screen if that fails.
+  const handleSessionExpired = useCallback(async () => {
+    const reLoggedIn = await silentReLogin();
+    if (!reLoggedIn) {
+      setLoggedIn(false);
+    }
+    // If reLoggedIn is true, the user stays on the current screen — they won't notice anything.
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -163,10 +180,10 @@ export default function App() {
             })}
           >
             <Tab.Screen name="Home" options={{ tabBarLabel: 'Punch In/Out' }}>
-              {() => <HomeScreen onLogout={handleLogout} />}
+              {() => <HomeScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
             </Tab.Screen>
             <Tab.Screen name="History" options={{ tabBarLabel: 'History' }}>
-              {() => <HistoryScreen onLogout={handleLogout} />}
+              {() => <HistoryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
             </Tab.Screen>
           </Tab.Navigator>
         </NavigationContainer>

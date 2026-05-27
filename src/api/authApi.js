@@ -9,10 +9,12 @@ const AUTH_KEYS = [
   'department', 'designation',
 ];
 
+const CRED_KEYS = ['savedEmail', 'savedPassword'];
+
 const getSiteBase = async () => {
   const url = await AsyncStorage.getItem('siteUrl');
   if (!url) throw new Error('No site configured.');
-  return url; // e.g. https://company.erpnext.com
+  return url;
 };
 
 export const loginWithPassword = async (email, password) => {
@@ -32,10 +34,12 @@ export const loginWithPassword = async (email, password) => {
     const data = response.data;
     if (data.message === 'Logged In' || data.full_name) {
       await AsyncStorage.multiSet([
-        ['authMethod', 'password'],
-        ['userEmail',  email],
-        ['userName',   data.full_name || email],
-        ['isLoggedIn', 'true'],
+        ['authMethod',    'password'],
+        ['userEmail',     email],
+        ['userName',      data.full_name || email],
+        ['isLoggedIn',    'true'],
+        ['savedEmail',    email],
+        ['savedPassword', password],   // stored so silent re-login can work
       ]);
       if (data.sid) await AsyncStorage.setItem('sessionId', data.sid);
       return { success: true, fullName: data.full_name, email };
@@ -51,6 +55,19 @@ export const loginWithPassword = async (email, password) => {
       throw new Error('Cannot connect to server. Check your network or site URL.');
     }
     throw new Error(error.message || 'Login failed. Please check your credentials.');
+  }
+};
+
+// Silently re-authenticates using saved credentials.
+// Returns true on success, false if credentials are missing or wrong.
+export const silentReLogin = async () => {
+  try {
+    const [[, email], [, password]] = await AsyncStorage.multiGet(CRED_KEYS);
+    if (!email || !password) return false;
+    await loginWithPassword(email, password);
+    return true;
+  } catch {
+    return false;
   }
 };
 
@@ -84,7 +101,7 @@ export const logout = async () => {
         });
       } catch { /* ignore server-side logout errors */ }
     }
-    await AsyncStorage.multiRemove(AUTH_KEYS);
+    await AsyncStorage.multiRemove([...AUTH_KEYS, ...CRED_KEYS]);
   } catch (error) {
     console.error('Logout error:', error);
     throw error;

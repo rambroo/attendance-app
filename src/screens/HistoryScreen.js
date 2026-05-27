@@ -63,7 +63,7 @@ const SummaryCard = memo(({ label, value, color }) => (
 ));
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
-const HistoryScreen = ({ onLogout }) => {
+const HistoryScreen = ({ onLogout, onSessionExpired }) => {
   const [records, setRecords]     = useState([]);
   const [summary, setSummary]     = useState(null);
   const [loading, setLoading]     = useState(true);
@@ -74,12 +74,8 @@ const HistoryScreen = ({ onLogout }) => {
   const [isOffline, setIsOffline] = useState(false);
 
   const handleSessionExpired = useCallback(() => {
-    Alert.alert(
-      'Session Expired',
-      'Your session has expired. Please log in again.',
-      [{ text: 'OK', onPress: onLogout }]
-    );
-  }, [onLogout]);
+    if (onSessionExpired) onSessionExpired();
+  }, [onSessionExpired]);
 
   const loadHistory = useCallback(async (lim = 30, showLoader = true) => {
     if (showLoader) setLoading(true);
