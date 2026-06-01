@@ -13,9 +13,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
+import LeavesScreen from './src/screens/LeavesScreen';
+import SalaryScreen from './src/screens/SalaryScreen';
+import ShiftsScreen from './src/screens/ShiftsScreen';
+import KioskScreen from './src/screens/KioskScreen';
 import SiteSetupScreen from './src/screens/SiteSetupScreen';
 import { isAuthenticated, logout, silentReLogin } from './src/api/authApi';
-import { isSiteConfigured, clearSiteConfig } from './src/utils/siteConfig';
+import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
 import { C } from './src/utils/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -23,8 +27,11 @@ SplashScreen.preventAutoHideAsync();
 const Tab = createBottomTabNavigator();
 
 const TAB_ICONS = {
-  Home:    { active: '⏱', inactive: '⏱' },
-  History: { active: '📋', inactive: '📋' },
+  Home:    '⏱',
+  History: '📋',
+  Leaves:  '🌿',
+  Salary:  '💰',
+  Shifts:  '📅',
 };
 
 const AUTH_KEYS = [
@@ -32,27 +39,30 @@ const AUTH_KEYS = [
   'userEmail', 'userName', 'isLoggedIn',
   'sessionId', 'employeeId', 'employeeName',
   'department', 'designation',
+  'savedEmail', 'savedPassword',
 ];
 
 export default function App() {
-  const [appReady,       setAppReady]       = useState(false);
-  const [siteReady,      setSiteReady]      = useState(false); // site configured
-  const [loggedIn,       setLoggedIn]       = useState(false);
-  const [loginKey,       setLoginKey]       = useState(0);     // force re-mount after login
+  const [appReady,  setAppReady]  = useState(false);
+  const [siteReady, setSiteReady] = useState(false);
+  const [kioskMode, setKioskMode] = useState(false);
+  const [loggedIn,  setLoggedIn]  = useState(false);
+  const [loginKey,  setLoginKey]  = useState(0);
 
   useEffect(() => {
     const init = async () => {
       try {
-        const [siteOk, authOk] = await Promise.all([
+        const [siteOk, kioskOk, authOk] = await Promise.all([
           isSiteConfigured(),
+          isKioskMode(),
           isAuthenticated(),
         ]);
         setSiteReady(siteOk);
+        setKioskMode(kioskOk);
 
-        if (authOk && siteOk) {
+        if (!kioskOk && authOk && siteOk) {
           setLoggedIn(true);
-        } else if (siteOk && !authOk) {
-          // Session gone (server restart / expiry) — try re-login silently
+        } else if (!kioskOk && siteOk && !authOk) {
           const reLoggedIn = await silentReLogin();
           setLoggedIn(reLoggedIn);
         }
@@ -69,10 +79,26 @@ export default function App() {
     if (appReady) await SplashScreen.hideAsync();
   }, [appReady]);
 
-  // Called after user sets up (or changes) their site
-  const handleSiteConfigured = useCallback(() => {
+  // Called by SiteSetupScreen with { mode: 'employee' | 'kiosk' }
+  const handleSiteConfigured = useCallback(({ mode }) => {
     setSiteReady(true);
-    setLoggedIn(false); // always require fresh login after site change
+    if (mode === 'kiosk') {
+      setKioskMode(true);
+    } else {
+      setKioskMode(false);
+      setLoggedIn(false);
+    }
+  }, []);
+
+  // Called by KioskScreen admin exit
+  const handleExitKiosk = useCallback((action) => {
+    setKioskMode(false);
+    if (action === 'changeSite') {
+      setSiteReady(false);
+      setLoggedIn(false);
+    } else {
+      setLoggedIn(false);
+    }
   }, []);
 
   // Clear site + auth and go back to site setup
@@ -145,6 +171,19 @@ export default function App() {
     );
   }
 
+  // ── Kiosk mode ──
+  if (kioskMode) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+            <KioskScreen onExitKiosk={handleExitKiosk} />
+          </View>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
   // ── Login ──
   if (!loggedIn) {
     return (
@@ -172,18 +211,25 @@ export default function App() {
               tabBarLabelStyle: styles.tabLabel,
               tabBarIcon: ({ focused }) => (
                 <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>
-                  {focused
-                    ? TAB_ICONS[route.name]?.active
-                    : TAB_ICONS[route.name]?.inactive}
+                  {TAB_ICONS[route.name]}
                 </Text>
               ),
             })}
           >
-            <Tab.Screen name="Home" options={{ tabBarLabel: 'Punch In/Out' }}>
+            <Tab.Screen name="Home" options={{ tabBarLabel: 'Punch' }}>
               {() => <HomeScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
             </Tab.Screen>
-            <Tab.Screen name="History" options={{ tabBarLabel: 'History' }}>
+            <Tab.Screen name="History" options={{ tabBarLabel: 'Attendance' }}>
               {() => <HistoryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+            </Tab.Screen>
+            <Tab.Screen name="Leaves" options={{ tabBarLabel: 'Leaves' }}>
+              {() => <LeavesScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+            </Tab.Screen>
+            <Tab.Screen name="Salary" options={{ tabBarLabel: 'Salary' }}>
+              {() => <SalaryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+            </Tab.Screen>
+            <Tab.Screen name="Shifts" options={{ tabBarLabel: 'Shifts' }}>
+              {() => <ShiftsScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
             </Tab.Screen>
           </Tab.Navigator>
         </NavigationContainer>
