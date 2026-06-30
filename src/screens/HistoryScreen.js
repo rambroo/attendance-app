@@ -174,10 +174,15 @@ const DayDetailModal = memo(({ visible, date, attendance, onClose }) => {
                     <View key={c.name} style={M.punchRow}>
                       <View style={[M.punchDot, { backgroundColor: c.log_type === 'IN' ? C.in : C.out }]} />
                       <View style={M.punchLine}>
-                        <Text style={M.punchType}>{c.log_type === 'IN' ? 'Punch In' : 'Punch Out'}</Text>
-                        <Text style={[M.punchTime, { color: c.log_type === 'IN' ? C.in : C.out }]}>
-                          {formatTime(c.time)}
-                        </Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={M.punchType}>{c.log_type === 'IN' ? 'Punch In' : 'Punch Out'}</Text>
+                          <Text style={[M.punchTime, { color: c.log_type === 'IN' ? C.in : C.out }]}>
+                            {formatTime(c.time)}
+                          </Text>
+                        </View>
+                        {c.custom_notes ? (
+                          <Text style={M.punchNote}>📝 {c.custom_notes}</Text>
+                        ) : null}
                       </View>
                     </View>
                   ))}
@@ -749,11 +754,12 @@ const M = StyleSheet.create({
   noSelfieText: { color: C.textMuted, fontSize: 13 },
 
   section:    { marginBottom: 16 },
-  punchRow:   { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  punchDot:   { width: 12, height: 12, borderRadius: 6, marginRight: 14 },
-  punchLine:  { flex: 1, flexDirection: 'row', justifyContent: 'space-between' },
+  punchRow:   { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+  punchDot:   { width: 12, height: 12, borderRadius: 6, marginRight: 14, marginTop: 4 },
+  punchLine:  { flex: 1 },
   punchType:  { fontSize: 14, fontWeight: '600', color: C.textPrimary },
   punchTime:  { fontSize: 14, fontWeight: '700' },
+  punchNote:  { fontSize: 12, color: C.textMuted, marginTop: 4, fontStyle: 'italic' },
 
   statsRow:   { flexDirection: 'row', gap: 12, marginBottom: 16 },
   statBox: {

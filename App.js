@@ -6,7 +6,7 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -33,6 +33,48 @@ const TAB_ICONS = {
   Salary:  '💰',
   Shifts:  '📅',
 };
+
+// Bottom tab bar — adds extra bottom padding so it never overlaps an
+// Android 3-button nav bar (or iPhone home indicator). Must live inside
+// SafeAreaProvider to read insets.
+function MainTabs({ loginKey, handleLogout, handleSessionExpired }) {
+  const insets = useSafeAreaInsets();
+  const navBarPad = Math.max(insets.bottom, 6);
+
+  return (
+    <Tab.Navigator
+      key={loginKey}
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarStyle: [styles.tabBar, { height: 54 + navBarPad, paddingBottom: navBarPad }],
+        tabBarActiveTintColor: C.brand,
+        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarLabelStyle: styles.tabLabel,
+        tabBarIcon: ({ focused }) => (
+          <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>
+            {TAB_ICONS[route.name]}
+          </Text>
+        ),
+      })}
+    >
+      <Tab.Screen name="Home" options={{ tabBarLabel: 'Punch' }}>
+        {() => <HomeScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+      </Tab.Screen>
+      <Tab.Screen name="History" options={{ tabBarLabel: 'Attendance' }}>
+        {() => <HistoryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+      </Tab.Screen>
+      <Tab.Screen name="Leaves" options={{ tabBarLabel: 'Leaves' }}>
+        {() => <LeavesScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+      </Tab.Screen>
+      <Tab.Screen name="Salary" options={{ tabBarLabel: 'Salary' }}>
+        {() => <SalaryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+      </Tab.Screen>
+      <Tab.Screen name="Shifts" options={{ tabBarLabel: 'Shifts' }}>
+        {() => <ShiftsScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+      </Tab.Screen>
+    </Tab.Navigator>
+  );
+}
 
 const AUTH_KEYS = [
   'authToken', 'apiKey', 'authMethod',
@@ -201,37 +243,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <NavigationContainer onReady={onLayoutRootView}>
-          <Tab.Navigator
-            key={loginKey}
-            screenOptions={({ route }) => ({
-              headerShown: false,
-              tabBarStyle: styles.tabBar,
-              tabBarActiveTintColor: C.brand,
-              tabBarInactiveTintColor: '#9CA3AF',
-              tabBarLabelStyle: styles.tabLabel,
-              tabBarIcon: ({ focused }) => (
-                <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>
-                  {TAB_ICONS[route.name]}
-                </Text>
-              ),
-            })}
-          >
-            <Tab.Screen name="Home" options={{ tabBarLabel: 'Punch' }}>
-              {() => <HomeScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
-            </Tab.Screen>
-            <Tab.Screen name="History" options={{ tabBarLabel: 'Attendance' }}>
-              {() => <HistoryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
-            </Tab.Screen>
-            <Tab.Screen name="Leaves" options={{ tabBarLabel: 'Leaves' }}>
-              {() => <LeavesScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
-            </Tab.Screen>
-            <Tab.Screen name="Salary" options={{ tabBarLabel: 'Salary' }}>
-              {() => <SalaryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
-            </Tab.Screen>
-            <Tab.Screen name="Shifts" options={{ tabBarLabel: 'Shifts' }}>
-              {() => <ShiftsScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
-            </Tab.Screen>
-          </Tab.Navigator>
+          <MainTabs
+            loginKey={loginKey}
+            handleLogout={handleLogout}
+            handleSessionExpired={handleSessionExpired}
+          />
         </NavigationContainer>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -241,11 +257,11 @@ export default function App() {
 const styles = StyleSheet.create({
   splash: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
   tabBar: {
+    // height + paddingBottom are set dynamically in MainTabs using safe-area
+    // insets, so the bar never gets covered by an Android 3-button nav bar.
     backgroundColor: '#fff',
     borderTopColor: C.border,
     borderTopWidth: 1,
-    height: 60,
-    paddingBottom: 6,
     paddingTop: 6,
     elevation: 10,
     shadowColor: '#000',

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   Modal, ActivityIndicator, Alert, Image,
-  StatusBar, Linking,
+  StatusBar, Linking, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
@@ -17,6 +17,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [phase,                setPhase]                = useState('camera');   // 'camera' | 'preview'
   const [photo,                setPhoto]                = useState(null);
+  const [notes,                setNotes]                = useState('');
   const [location,             setLocation]             = useState(null);
   const [locationStatus,       setLocationStatus]       = useState('fetching');
   const [locationRetries,      setLocationRetries]      = useState(0);
@@ -68,6 +69,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
     if (visible) {
       setPhase('camera');
       setPhoto(null);
+      setNotes('');
       setLocation(null);
       setLocationStatus('fetching');
       setLocationRetries(0);
@@ -99,8 +101,8 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
   }, []);
 
   const handleConfirm = useCallback(
-    () => onConfirm({ photo, location }),
-    [onConfirm, photo, location]
+    () => onConfirm({ photo, location, notes: notes.trim() }),
+    [onConfirm, photo, location, notes]
   );
 
   // ── Derived confirm state ───────────────────────────────────────────────────
@@ -199,7 +201,10 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
 
       {/* ══ Preview Phase ═════════════════════════════════════════════════════ */}
       {phase === 'preview' && (
-        <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <KeyboardAvoidingView
+          style={{ flex: 1, backgroundColor: '#000' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <Image source={{ uri: photo.uri }} style={S.previewImage} />
 
           <View style={S.previewPanel}>
@@ -284,6 +289,22 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
               </View>
             )}
 
+            {/* ── Additional notes (optional) ── */}
+            <View style={S.notesBlock}>
+              <Text style={S.notesLabel}>Additional Notes <Text style={S.notesOptional}>(optional)</Text></Text>
+              <TextInput
+                style={S.notesInput}
+                value={notes}
+                onChangeText={setNotes}
+                placeholder={logType === 'IN' ? 'e.g. Client visit, working from site…' : 'e.g. Left early - doctor appointment…'}
+                placeholderTextColor="#6B7280"
+                multiline
+                numberOfLines={2}
+                maxLength={250}
+                editable={!punching}
+              />
+            </View>
+
             {/* ── Buttons ── */}
             <View style={S.previewBtns}>
               <TouchableOpacity style={S.retakeBtn} onPress={handleRetake} disabled={punching}>
@@ -312,7 +333,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       )}
     </Modal>
   );
@@ -485,6 +506,18 @@ const S = StyleSheet.create({
   checkmark:   { color: '#fff', fontSize: 12, fontWeight: '800' },
   forceLabel:  { fontSize: 13, color: '#D1D5DB', fontWeight: '600' },
   forceSub:    { fontSize: 11, color: '#6B7280', marginTop: 2 },
+
+  // ── Notes block ──
+  notesBlock:  { marginBottom: 16 },
+  notesLabel:  { fontSize: 12, fontWeight: '700', color: '#D1D5DB', marginBottom: 6 },
+  notesOptional: { fontSize: 11, fontWeight: '500', color: '#6B7280' },
+  notesInput: {
+    backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 12, paddingVertical: 10,
+    fontSize: 13, color: '#fff', minHeight: 52,
+    textAlignVertical: 'top',
+  },
 
   // ── Preview action buttons ──
   previewBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },

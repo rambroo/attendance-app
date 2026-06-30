@@ -237,7 +237,7 @@ const uploadSelfieGetUrl = async (photo) => {
 //  2. POST to attendance_app_punch Server Script with file_url + location
 export const createCheckin = async (employeeId, logType, options = {}) => {
   try {
-    const { location, photo } = options;
+    const { location, photo, notes } = options;
 
     let selfieFileUrl = null;
     if (photo?.uri) {
@@ -255,6 +255,9 @@ export const createCheckin = async (employeeId, logType, options = {}) => {
     }
     if (selfieFileUrl) {
       payload.selfie_file_url = selfieFileUrl;
+    }
+    if (notes) {
+      payload.notes = notes;
     }
 
     const response = await apiClient.post('/method/attendance_app_punch', payload);
@@ -332,7 +335,7 @@ export const getDateCheckins = async (employeeId, dateStr) => {
           'name', 'log_type', 'time',
           'custom_selfie_image', 'shift',
           'custom_geofence_status', 'custom_matched_location', 'custom_distance_meters',
-          'latitude', 'longitude',
+          'latitude', 'longitude', 'custom_notes',
         ]),
         order_by: 'time asc',
         limit: 20,

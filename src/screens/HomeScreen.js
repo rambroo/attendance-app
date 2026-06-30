@@ -197,13 +197,13 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
 
   const handleCloseModal = useCallback(() => setModalVisible(false), []);
 
-  const handleModalConfirm = useCallback(async ({ photo, location }) => {
+  const handleModalConfirm = useCallback(async ({ photo, location, notes }) => {
     const emp     = employeeRef.current;
     const logType = getNextPunchType(checkins);
     setPunching(true);
     setLastMsg('');
     try {
-      await createCheckin(emp.name, logType, { photo, location });
+      await createCheckin(emp.name, logType, { photo, location, notes });
       setModalVisible(false);
       const logs = await getTodayCheckins(emp.name, formatDate(new Date()));
       setCheckins(logs);
