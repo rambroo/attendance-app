@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView,
-  Platform, ScrollView, ActivityIndicator,
+  Platform, ScrollView, ActivityIndicator, Modal,
 } from 'react-native';
 import { loginWithPassword } from '../api/authApi';
-import { getSiteLabel } from '../utils/siteConfig';
+import { getSiteLabel, saveKioskConfig } from '../utils/siteConfig';
 import { C } from '../utils/theme';
 
-const LoginScreen = ({ onLoginSuccess, onChangeSite }) => {
+const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
   const [email, setEmail]           = useState('');
   const [password, setPassword]     = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -16,9 +16,33 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite }) => {
   const [error, setError]           = useState('');
   const [siteLabel, setSiteLabel]   = useState('');
 
+  // Kiosk mode setup modal
+  const [kioskModal,   setKioskModal]   = useState(false);
+  const [kioskKey,     setKioskKey]     = useState('');
+  const [kioskLoc,     setKioskLoc]     = useState('Main Entrance');
+  const [kioskPin,     setKioskPin]     = useState('0000');
+  const [kioskLoading, setKioskLoading] = useState(false);
+  const [kioskError,   setKioskError]   = useState('');
+
   useEffect(() => {
     getSiteLabel().then((l) => setSiteLabel(l || ''));
   }, []);
+
+  const handleKioskSetup = async () => {
+    setKioskError('');
+    if (!kioskKey.trim()) { setKioskError('Please enter the Kiosk API Key.'); return; }
+    if (!kioskKey.includes(':')) { setKioskError('Format must be  apiKey:apiSecret'); return; }
+    setKioskLoading(true);
+    try {
+      await saveKioskConfig({ apiKey: btoa(kioskKey.trim()), location: kioskLoc.trim(), pin: kioskPin.trim() || '0000' });
+      setKioskModal(false);
+      onKioskMode();
+    } catch (err) {
+      setKioskError(err.message || 'Could not save kiosk configuration.');
+    } finally {
+      setKioskLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     setError('');
@@ -132,7 +156,77 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite }) => {
         <Text style={styles.hint}>
           Contact HR if you cannot access your account.
         </Text>
+
+        <TouchableOpacity style={styles.kioskLink} onPress={() => { setKioskError(''); setKioskModal(true); }} activeOpacity={0.7}>
+          <Text style={styles.kioskLinkText}>🏫  Switch to Kiosk Mode</Text>
+        </TouchableOpacity>
       </ScrollView>
+
+      {/* ── Kiosk Setup Modal ── */}
+      <Modal visible={kioskModal} animationType="slide" transparent onRequestClose={() => setKioskModal(false)}>
+        <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ width: '100%' }}>
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Kiosk Mode Setup</Text>
+              <Text style={styles.modalSub}>
+                Fixed device at entrance — persons enter their ID to check in/out.{'\n'}
+                Create a Frappe API Key for the kiosk user and paste it below.
+              </Text>
+
+              <Text style={styles.label}>Kiosk API Key *</Text>
+              <TextInput
+                style={[styles.input, kioskError && styles.inputError]}
+                placeholder="apiKey:apiSecret"
+                value={kioskKey}
+                onChangeText={(t) => { setKioskKey(t); setKioskError(''); }}
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholderTextColor={C.textMuted}
+              />
+
+              <Text style={styles.label}>Location / Kiosk Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Main Entrance, Gate 1"
+                value={kioskLoc}
+                onChangeText={setKioskLoc}
+                placeholderTextColor={C.textMuted}
+              />
+
+              <Text style={styles.label}>Admin Exit PIN (4 digits)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="0000"
+                value={kioskPin}
+                onChangeText={setKioskPin}
+                keyboardType="numeric"
+                maxLength={4}
+                placeholderTextColor={C.textMuted}
+              />
+
+              {kioskError ? (
+                <View style={styles.errorBox}><Text style={styles.errorText}>⚠ {kioskError}</Text></View>
+              ) : null}
+
+              <TouchableOpacity
+                style={[styles.kioskBtn, kioskLoading && styles.loginBtnDisabled]}
+                onPress={handleKioskSetup}
+                disabled={kioskLoading}
+                activeOpacity={0.85}
+              >
+                {kioskLoading
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.loginBtnText}>Start Kiosk →</Text>}
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setKioskModal(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -212,6 +306,32 @@ const styles = StyleSheet.create({
   loginBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
 
   hint: { textAlign: 'center', fontSize: 12, color: C.textMuted, lineHeight: 18 },
+
+  kioskLink: { alignSelf: 'center', marginTop: 20, paddingVertical: 10, paddingHorizontal: 20 },
+  kioskLinkText: { fontSize: 13, color: C.textMuted, fontWeight: '500' },
+
+  // Kiosk setup modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalSheet: {
+    backgroundColor: C.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 40,
+  },
+  modalHandle: {
+    width: 40, height: 4, borderRadius: 2, backgroundColor: C.border,
+    alignSelf: 'center', marginBottom: 20,
+  },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: C.textPrimary, marginBottom: 6 },
+  modalSub:   { fontSize: 13, color: C.textMuted, marginBottom: 20, lineHeight: 19 },
+
+  inputError: { borderColor: C.error },
+  kioskBtn: {
+    backgroundColor: '#F59E0B', borderRadius: 50,
+    paddingVertical: 15, alignItems: 'center', marginTop: 4,
+    shadowColor: '#B45309', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
+  },
+  cancelBtn:  { alignItems: 'center', paddingVertical: 14 },
+  cancelText: { fontSize: 14, color: C.textSecond, fontWeight: '600' },
 });
 
 export default LoginScreen;

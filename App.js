@@ -181,6 +181,10 @@ export default function App() {
     // If reLoggedIn is true, the user stays on the current screen — they won't notice anything.
   }, []);
 
+  const handleSwitchToKiosk = useCallback(() => {
+    setKioskMode(true);
+  }, []);
+
   const handleLogout = useCallback(() => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
       { text: 'Cancel', style: 'cancel' },
@@ -233,6 +237,7 @@ export default function App() {
         <LoginScreen
           onLoginSuccess={handleLoginSuccess}
           onChangeSite={handleChangeSite}
+          onKioskMode={handleSwitchToKiosk}
         />
       </View>
     );
