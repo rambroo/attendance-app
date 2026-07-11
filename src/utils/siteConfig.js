@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecret, setSecret, deleteSecret } from './secureStore';
 
 const KEY_URL        = 'siteUrl';
 const KEY_LABEL      = 'siteLabel';
@@ -16,8 +17,10 @@ export const isSiteConfigured = async () => !!(await AsyncStorage.getItem(KEY_UR
 export const saveSiteConfig = async (url, label) =>
   AsyncStorage.multiSet([[KEY_URL, url], [KEY_LABEL, label || url]]);
 
-export const clearSiteConfig = () =>
-  AsyncStorage.multiRemove([KEY_URL, KEY_LABEL, KEY_KIOSK_MODE, KEY_KIOSK_KEY, KEY_KIOSK_LOC, KEY_KIOSK_PIN]);
+export const clearSiteConfig = async () => {
+  await AsyncStorage.multiRemove([KEY_URL, KEY_LABEL, KEY_KIOSK_MODE, KEY_KIOSK_LOC, KEY_KIOSK_PIN]);
+  await deleteSecret(KEY_KIOSK_KEY);
+};
 
 // ── Kiosk ─────────────────────────────────────────────────────────────────────
 
@@ -26,21 +29,24 @@ export const isKioskMode = async () => (await AsyncStorage.getItem(KEY_KIOSK_MOD
 export const saveKioskConfig = async ({ apiKey, location, pin }) => {
   await AsyncStorage.multiSet([
     [KEY_KIOSK_MODE, 'true'],
-    [KEY_KIOSK_KEY,  apiKey],
     [KEY_KIOSK_LOC,  location || 'Main Entrance'],
     [KEY_KIOSK_PIN,  pin || '0000'],
   ]);
+  await setSecret(KEY_KIOSK_KEY, apiKey); // API key lives in SecureStore
 };
 
 export const getKioskConfig = async () => {
-  const [[, apiKey], [, location], [, pin]] = await AsyncStorage.multiGet([
-    KEY_KIOSK_KEY, KEY_KIOSK_LOC, KEY_KIOSK_PIN,
+  const [[, location], [, pin]] = await AsyncStorage.multiGet([
+    KEY_KIOSK_LOC, KEY_KIOSK_PIN,
   ]);
+  const apiKey = await getSecret(KEY_KIOSK_KEY);
   return { apiKey: apiKey || '', location: location || 'Main Entrance', pin: pin || '0000' };
 };
 
-export const clearKioskMode = () =>
-  AsyncStorage.multiRemove([KEY_KIOSK_MODE, KEY_KIOSK_KEY, KEY_KIOSK_LOC, KEY_KIOSK_PIN]);
+export const clearKioskMode = async () => {
+  await AsyncStorage.multiRemove([KEY_KIOSK_MODE, KEY_KIOSK_LOC, KEY_KIOSK_PIN]);
+  await deleteSecret(KEY_KIOSK_KEY);
+};
 
 // ── Validation ────────────────────────────────────────────────────────────────
 

@@ -4,6 +4,7 @@ import {
   StyleSheet, KeyboardAvoidingView,
   Platform, ScrollView, ActivityIndicator, Modal,
 } from 'react-native';
+import { encode as base64Encode } from 'base-64';
 import { loginWithPassword } from '../api/authApi';
 import { getSiteLabel, saveKioskConfig } from '../utils/siteConfig';
 import { C } from '../utils/theme';
@@ -34,7 +35,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
     if (!kioskKey.includes(':')) { setKioskError('Format must be  apiKey:apiSecret'); return; }
     setKioskLoading(true);
     try {
-      await saveKioskConfig({ apiKey: btoa(kioskKey.trim()), location: kioskLoc.trim(), pin: kioskPin.trim() || '0000' });
+      await saveKioskConfig({ apiKey: base64Encode(kioskKey.trim()), location: kioskLoc.trim(), pin: kioskPin.trim() || '0000' });
       setKioskModal(false);
       onKioskMode();
     } catch (err) {

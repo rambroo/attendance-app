@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { encode as base64Encode } from 'base-64';
 import axios from 'axios';
+import { getSecret, setSecret, deleteSecret } from '../utils/secureStore';
 
 const AUTH_KEYS = [
   'authToken', 'apiKey', 'authMethod',
@@ -9,7 +10,14 @@ const AUTH_KEYS = [
   'department', 'designation',
 ];
 
+// Stored in SecureStore (Keystore-backed), not AsyncStorage
 const CRED_KEYS = ['savedEmail', 'savedPassword'];
+
+// Removes saved login credentials from secure storage (and any plaintext
+// copies left behind by pre-1.1.0 builds).
+export const clearSavedCredentials = async () => {
+  await Promise.all(CRED_KEYS.map(deleteSecret));
+};
 
 const getSiteBase = async () => {
   const url = await AsyncStorage.getItem('siteUrl');
@@ -34,12 +42,15 @@ export const loginWithPassword = async (email, password) => {
     const data = response.data;
     if (data.message === 'Logged In' || data.full_name) {
       await AsyncStorage.multiSet([
-        ['authMethod',    'password'],
-        ['userEmail',     email],
-        ['userName',      data.full_name || email],
-        ['isLoggedIn',    'true'],
-        ['savedEmail',    email],
-        ['savedPassword', password],   // stored so silent re-login can work
+        ['authMethod', 'password'],
+        ['userEmail',  email],
+        ['userName',   data.full_name || email],
+        ['isLoggedIn', 'true'],
+      ]);
+      // Credentials go to SecureStore so silent re-login can work
+      await Promise.all([
+        setSecret('savedEmail', email),
+        setSecret('savedPassword', password),
       ]);
       if (data.sid) await AsyncStorage.setItem('sessionId', data.sid);
       return { success: true, fullName: data.full_name, email };
@@ -62,7 +73,10 @@ export const loginWithPassword = async (email, password) => {
 // Returns true on success, false if credentials are missing or wrong.
 export const silentReLogin = async () => {
   try {
-    const [[, email], [, password]] = await AsyncStorage.multiGet(CRED_KEYS);
+    const [email, password] = await Promise.all([
+      getSecret('savedEmail'),
+      getSecret('savedPassword'),
+    ]);
     if (!email || !password) return false;
     await loginWithPassword(email, password);
     return true;
@@ -101,7 +115,8 @@ export const logout = async () => {
         });
       } catch { /* ignore server-side logout errors */ }
     }
-    await AsyncStorage.multiRemove([...AUTH_KEYS, ...CRED_KEYS]);
+    await AsyncStorage.multiRemove(AUTH_KEYS);
+    await clearSavedCredentials();
   } catch (error) {
     console.error('Logout error:', error);
     throw error;

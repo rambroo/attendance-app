@@ -9,6 +9,16 @@ import * as Location from 'expo-location';
 import { C } from '../utils/theme';
 
 const MAX_LOCATION_RETRIES = 3;
+const LOCATION_TIMEOUT_MS  = 12000;
+const GEOCODE_TIMEOUT_MS   = 5000;
+
+// getCurrentPositionAsync has no timeout option and can hang indefinitely on
+// devices with a poor GPS fix — race it against a real timer.
+const withTimeout = (promise, ms) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ]);
 
 // ── Location status machine ───────────────────────────────────────────────────
 // 'fetching' → 'ok' | 'error' | 'denied'
@@ -37,14 +47,27 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
         setLocationStatus('denied');
         return;
       }
-      const { coords } = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-        timeout: 12000,
-      });
+
+      let coords = null;
+      try {
+        ({ coords } = await withTimeout(
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+          LOCATION_TIMEOUT_MS,
+        ));
+      } catch {
+        // Fresh fix failed — fall back to a recent cached position (≤60s old)
+        const last = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
+        if (!last) throw new Error('no location');
+        ({ coords } = last);
+      }
+
       const { latitude, longitude } = coords;
       let address = '';
       try {
-        const places = await Location.reverseGeocodeAsync({ latitude, longitude });
+        const places = await withTimeout(
+          Location.reverseGeocodeAsync({ latitude, longitude }),
+          GEOCODE_TIMEOUT_MS,
+        );
         if (places.length > 0) {
           const p = places[0];
           address = [p.name, p.street, p.district, p.city].filter(Boolean).slice(0, 3).join(', ');
@@ -84,9 +107,9 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
     if (!cameraRef.current) return;
     try {
       const result = await cameraRef.current.takePictureAsync({
-        quality: 0.5, base64: true, skipProcessing: false,
+        quality: 0.5, base64: false, skipProcessing: false,
       });
-      setPhoto({ uri: result.uri, base64: result.base64 });
+      setPhoto({ uri: result.uri });
       setPhase('preview');
     } catch {
       Alert.alert('Camera Error', 'Could not capture photo. Please try again.');

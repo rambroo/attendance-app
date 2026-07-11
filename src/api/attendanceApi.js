@@ -218,9 +218,22 @@ const uploadSelfieGetUrl = async (photo) => {
   formData.append('is_private', '0');   // public — Image on Android can't load private files (Cookie stripped by OkHttp)
   formData.append('folder', 'Home/Attachments');
 
-  const resp = await fetch(`${siteUrl}/api/method/upload_file`, {
-    method: 'POST', headers, body: formData,
-  });
+  // Raw fetch has no timeout — abort after 45s so the punch spinner can't hang forever
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+  let resp;
+  try {
+    resp = await fetch(`${siteUrl}/api/method/upload_file`, {
+      method: 'POST', headers, body: formData, signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Selfie upload timed out. Check your connection and try again.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!resp.ok) {
     const body = await resp.text().catch(() => '');
     console.error('Selfie upload HTTP error:', resp.status, body.slice(0, 200));

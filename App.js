@@ -18,7 +18,7 @@ import SalaryScreen from './src/screens/SalaryScreen';
 import ShiftsScreen from './src/screens/ShiftsScreen';
 import KioskScreen from './src/screens/KioskScreen';
 import SiteSetupScreen from './src/screens/SiteSetupScreen';
-import { isAuthenticated, logout, silentReLogin } from './src/api/authApi';
+import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from './src/api/authApi';
 import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
 import { C } from './src/utils/theme';
 
@@ -81,10 +81,43 @@ const AUTH_KEYS = [
   'userEmail', 'userName', 'isLoggedIn',
   'sessionId', 'employeeId', 'employeeName',
   'department', 'designation',
-  'savedEmail', 'savedPassword',
 ];
 
-export default function App() {
+// Catches unexpected render/runtime errors so a release build shows a
+// recoverable screen instead of hard-crashing (protects Play Store vitals).
+class ErrorBoundary extends React.Component {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, info) {
+    console.warn('Unhandled app error:', error, info?.componentStack);
+  }
+
+  handleRetry = () => this.setState({ hasError: false });
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={styles.errorRoot}>
+          <Text style={styles.errorEmoji}>😕</Text>
+          <Text style={styles.errorTitle}>Something went wrong</Text>
+          <Text style={styles.errorBody}>
+            An unexpected error occurred. Tap below to reload the app.
+          </Text>
+          <TouchableOpacity style={styles.errorBtn} onPress={this.handleRetry} activeOpacity={0.85}>
+            <Text style={styles.errorBtnText}>Reload</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function Root() {
   const [appReady,  setAppReady]  = useState(false);
   const [siteReady, setSiteReady] = useState(false);
   const [kioskMode, setKioskMode] = useState(false);
@@ -157,6 +190,7 @@ export default function App() {
             await Promise.all([
               clearSiteConfig(),
               AsyncStorage.multiRemove(AUTH_KEYS),
+              clearSavedCredentials(),
             ]);
             setSiteReady(false);
             setLoggedIn(false);
@@ -259,8 +293,28 @@ export default function App() {
   );
 }
 
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <Root />
+    </ErrorBoundary>
+  );
+}
+
 const styles = StyleSheet.create({
   splash: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
+  errorRoot: {
+    flex: 1, justifyContent: 'center', alignItems: 'center',
+    backgroundColor: C.bg, padding: 32,
+  },
+  errorEmoji: { fontSize: 48, marginBottom: 16 },
+  errorTitle: { fontSize: 20, fontWeight: '700', color: C.textPrimary, marginBottom: 8 },
+  errorBody:  { fontSize: 14, color: C.textMuted, textAlign: 'center', lineHeight: 21, marginBottom: 24 },
+  errorBtn: {
+    backgroundColor: C.brand, borderRadius: 50,
+    paddingVertical: 14, paddingHorizontal: 48,
+  },
+  errorBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   tabBar: {
     // height + paddingBottom are set dynamically in MainTabs using safe-area
     // insets, so the bar never gets covered by an Android 3-button nav bar.

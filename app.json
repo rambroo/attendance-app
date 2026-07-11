@@ -2,7 +2,7 @@
   "expo": {
     "name": "Attendance",
     "slug": "attendance-app",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -30,8 +30,9 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
-      "enableProguardInReleaseBuilds": true,
-      "enableShrinkResourcesInReleaseBuilds": true
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -40,13 +41,26 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Attendance to access your camera for selfie verification."
+          "cameraPermission": "Allow Attendance to access your camera for selfie verification.",
+          "recordAudioAndroid": false
         }
       ],
       [
         "expo-location",
         {
           "locationWhenInUsePermission": "Allow Attendance to access your location when punching in/out."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "usesCleartextTraffic": true,
+            "allowBackup": false
+          }
         }
       ]
     ],
