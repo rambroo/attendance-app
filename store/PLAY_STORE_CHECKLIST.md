@@ -4,6 +4,35 @@ Everything needed to pass Google Play review on the first submission. Code-level
 
 ---
 
+## 0. FIRST: check your developer account type
+
+**Play Console → Settings → Developer account → Account details → Account type.**
+
+| If it says | Then |
+|---|---|
+| **Organization** | No extra gate. Internal testing → Production directly. |
+| **Personal / Individual** | ⚠️ Google requires a **closed test with 12+ testers opted in for 14 continuous days** before you can apply for production access. Drop below 12 and the clock restarts. Use the **Closed testing** track (Internal testing does NOT count toward the 14 days). Recruiting 12 testers becomes the critical path — start it before anything else. |
+
+---
+
+## Dashboard walkthrough — "Set up your app", in order
+
+| # | Task | Answer |
+|---|---|---|
+| 1 | Privacy policy | `https://rambroo.github.io/attendance-app/` |
+| 2 | App access | Restricted → demo credentials + instructions (§4 below) |
+| 3 | Ads | **No**, contains no ads |
+| 4 | Content rating | Utility/Productivity → No to all → "Everyone" |
+| 5 | Target audience | **18 and over only** — nothing under 18 |
+| 6 | News / Government / Financial / Health | No / No / None / No |
+| 7 | Data safety | See §3 below |
+| 8 | Category & contact | **Business**, rohanrambhiya59@gmail.com |
+| 9 | Store listing | Copy from `store/STORE_LISTING.md` + icon, feature graphic, screenshots |
+
+Then: **Create release → upload `.aab` → roll out to testers → smoke test (§11) → promote to Production.**
+
+---
+
 ## 1. Build & upload
 
 ```bash
@@ -38,13 +67,24 @@ Declare exactly this:
 
 ## 4. App access (critical for apps behind a login — #1 rejection cause)
 
-Google reviewers **must be able to log in**. In **App content → App access**:
-- Choose "All or some functionality is restricted".
-- Add instructions + credentials, e.g.:
-  - Site URL to enter on first screen: `https://<your-demo-site>` (set up a demo Frappe site with a test employee)
-  - Email: `reviewer@demo...` / Password: `...`
-  - Note for reviewer: "App requires camera + location permission to record attendance. The punch will be validated against a geofence; punching may be rejected by the demo server outside the configured area — this is expected behavior."
-- The demo account must stay working for the whole review period (and future update reviews).
+Google reviewers **must be able to log in**. In **App content → App access** → "All or some functionality is restricted".
+
+- **Instructions name:** Employee login (demo account)
+- **Username / Password:** the demo employee account on `techniti.wecanwewillfdn.org`
+  (credentials live in Play Console only — never commit them to this public repo)
+- **Other information:**
+
+  > This app connects to an organization's own Frappe/ERPNext HR server.
+  >
+  > 1. On the first screen, enter this site address: `techniti.wecanwewillfdn.org` and tap Connect.
+  > 2. Log in with the email and password above.
+  > 3. Allow camera and location permissions when prompted (required to record a punch).
+  >
+  > Note: when you tap Punch In, the server validates your GPS position against a geofence around our office in Mumbai, India. Punching from outside that area is rejected by the server with a location message — this is expected behavior and demonstrates the geofence validation. All other features (attendance history, calendar, profile) work normally.
+
+- ✅ Site verified reachable over HTTPS (`/api/method/ping` → `pong`).
+- The demo account must stay working for the whole review period **and all future update reviews** — don't disable it after approval.
+- Confirm the demo user has a **linked Employee record**, otherwise login succeeds but the profile never loads and the app looks broken to a reviewer.
 
 ## 5. Content rating questionnaire
 
