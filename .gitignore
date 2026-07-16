@@ -68,5 +68,9 @@ ios/
 # EAS
 .easignore.local
 
+# Local tooling config
+.claude/
+CLAUDE.md
+
 # Code analysis (graphify)
 graphify-out/
