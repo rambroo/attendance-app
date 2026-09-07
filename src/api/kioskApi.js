@@ -1,4 +1,5 @@
 import { getSiteUrl, getKioskConfig } from '../utils/siteConfig';
+import { hasPrivateSelfieSupport } from '../utils/serverCaps';
 
 const REQUEST_TIMEOUT_MS = 20000;
 const UPLOAD_TIMEOUT_MS  = 45000;
@@ -109,7 +110,11 @@ export const uploadKioskSelfie = async (photo) => {
     name: `kiosk_selfie_${Date.now()}.jpg`,
     type: 'image/jpeg',
   });
-  formData.append('is_private', '0');
+  // These are photos of students and other non-staff persons, so private is the
+  // right default. The kiosk itself never reads the file back — its success
+  // overlay shows the locally captured image — but the kiosk reports on the
+  // desk do, so only go private where signed URLs are available to serve them.
+  formData.append('is_private', (await hasPrivateSelfieSupport()) ? '1' : '0');
   formData.append('folder', 'Home/Attachments');
 
   const resp = await fetchWithTimeout(`${siteUrl}/api/method/upload_file`, {

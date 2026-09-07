@@ -4,11 +4,10 @@ import {
   ActivityIndicator, RefreshControl,
   TouchableOpacity, StatusBar, Dimensions, Linking,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '../utils/theme';
 import {
   getMonthAttendance, getMonthCheckins, getDateCheckins,
-  getCachedEmployee, formatHours, formatTime, calcWorkingHours,
+  getCachedEmployee, getSelfieUrls, formatHours, formatTime, calcWorkingHours,
 } from '../api/attendanceApi';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -56,12 +55,14 @@ const DayDetailModal = memo(({ visible, date, attendance, onClose }) => {
         const data = await getDateCheckins(emp.name, toDateKey(date));
         setCheckins(data);
 
-        // Selfies are uploaded as public files (is_private=0) so they're
-        // directly accessible by URL — no auth headers needed on Android.
+        // Passing the whole record (not just the name) lets getSelfieUrls fall
+        // back to the stored public path on sites without next_attendance.
         const selfieRecord = data.find(c => c.custom_selfie_image);
-        if (selfieRecord?.custom_selfie_image) {
-          const siteUrl = await AsyncStorage.getItem('siteUrl');
-          setSelfieUri(`${siteUrl}${selfieRecord.custom_selfie_image}`);
+        if (selfieRecord) {
+          const urls = await getSelfieUrls([selfieRecord]);
+          const uri = urls[selfieRecord.name];
+          if (uri) setSelfieUri(uri);
+          else setSelfieError(true);
         }
       } catch (e) {
         console.warn('Day detail fetch error:', e);
