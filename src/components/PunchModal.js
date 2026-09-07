@@ -7,6 +7,7 @@ import {
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import { C } from '../utils/theme';
+import { pickPictureSize, CAPTURE_QUALITY } from '../utils/camera';
 
 const MAX_LOCATION_RETRIES = 3;
 const LOCATION_TIMEOUT_MS  = 12000;
@@ -32,7 +33,20 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
   const [locationStatus,       setLocationStatus]       = useState('fetching');
   const [locationRetries,      setLocationRetries]      = useState(0);
   const [forceWithoutLocation, setForceWithoutLocation] = useState(false);
+  const [pictureSize,          setPictureSize]          = useState(undefined);
   const cameraRef = useRef(null);
+
+  // Pick a modest capture resolution once the camera is up. Left undefined the
+  // camera shoots at full sensor size, producing multi-megabyte selfies that
+  // dominate punch time on a mobile uplink.
+  const handleCameraReady = useCallback(async () => {
+    if (pictureSize) return;
+    try {
+      const sizes = await cameraRef.current?.getAvailablePictureSizesAsync();
+      const chosen = pickPictureSize(sizes);
+      if (chosen) setPictureSize(chosen);
+    } catch { /* keep the camera default rather than failing the punch */ }
+  }, [pictureSize]);
 
   const isPunchIn = logType === 'IN';
   const accent    = isPunchIn ? C.in : C.out;
@@ -107,7 +121,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
     if (!cameraRef.current) return;
     try {
       const result = await cameraRef.current.takePictureAsync({
-        quality: 0.5, base64: false, skipProcessing: false,
+        quality: CAPTURE_QUALITY, base64: false, skipProcessing: false,
       });
       setPhoto({ uri: result.uri });
       setPhase('preview');
@@ -177,7 +191,13 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
         <View style={S.cameraContainer}>
           {cameraPermission?.granted ? (
             <View style={{ flex: 1 }}>
-              <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
+              <CameraView
+                ref={cameraRef}
+                style={StyleSheet.absoluteFill}
+                facing="front"
+                pictureSize={pictureSize}
+                onCameraReady={handleCameraReady}
+              />
 
               {/* Top bar */}
               <View style={S.camTopBar}>

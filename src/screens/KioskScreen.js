@@ -9,6 +9,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { C } from '../utils/theme';
 import { kioskPunch, uploadKioskSelfie } from '../api/kioskApi';
 import { getKioskConfig, clearKioskMode, clearSiteConfig } from '../utils/siteConfig';
+import { pickPictureSize, CAPTURE_QUALITY } from '../utils/camera';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -42,8 +43,19 @@ const CameraModal = memo(({ visible, onCapture, onSkip }) => {
   const [permission, requestPermission] = useCameraPermissions();
   const [countdown, setCountdown]       = useState(3);
   const [capturing, setCapturing]       = useState(false);
+  const [pictureSize, setPictureSize]   = useState(undefined);
   const cameraRef = useRef(null);
   const timerRef  = useRef(null);
+
+  // Cap capture resolution so the kiosk isn't uploading multi-megabyte frames
+  // between each person in a queue. See src/utils/camera.js.
+  const handleCameraReady = useCallback(async () => {
+    if (pictureSize) return;
+    try {
+      const chosen = pickPictureSize(await cameraRef.current?.getAvailablePictureSizesAsync());
+      if (chosen) setPictureSize(chosen);
+    } catch { /* fall back to the camera default */ }
+  }, [pictureSize]);
 
   useEffect(() => {
     if (visible) {
@@ -67,7 +79,9 @@ const CameraModal = memo(({ visible, onCapture, onSkip }) => {
     if (capturing || !cameraRef.current) return;
     setCapturing(true);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, base64: false });
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: CAPTURE_QUALITY, base64: false,
+      });
       onCapture(photo);
     } catch {
       onSkip();
@@ -107,6 +121,8 @@ const CameraModal = memo(({ visible, onCapture, onSkip }) => {
               ref={cameraRef}
               style={cam.camera}
               facing="front"
+              pictureSize={pictureSize}
+              onCameraReady={handleCameraReady}
             />
             {/* Oval face guide */}
             <View style={cam.oval} />
@@ -344,8 +360,10 @@ export default function KioskScreen({ onExitKiosk }) {
       }
       const result = await kioskPunch(pendingId, selfieUrl);
       const isOut  = result.log_type === 'OUT';
-      // Attach the captured selfie to result for display
-      if (selfieUrl) result.selfie_url = selfieUrl;
+      // Show the photo we just captured, straight off local disk. The uploaded
+      // copy is a private file and isn't readable without a signed URL — and
+      // the local one renders instantly, with no second round trip.
+      if (photo?.uri) result.selfie_url = photo.uri;
       setState(isOut ? 'success_out' : 'success_in');
       setResultData(result);
       setLastPunch({ name: result.person_name, log: result.log_type, time: result.time });

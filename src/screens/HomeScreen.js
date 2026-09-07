@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Alert,
-  RefreshControl, StatusBar, Animated,
+  RefreshControl, StatusBar, Animated, AppState,
 } from 'react-native';
 import { C } from '../utils/theme';
 import {
@@ -10,15 +10,23 @@ import {
   getCachedEmployee,
   getCachedTodayCheckins,
   getTodayCheckins,
-  createCheckin,
   getNextPunchType,
   calcWorkingHours,
   formatHours,
   formatDate,
+  formatDateTime,
   formatTime,
 } from '../api/attendanceApi';
+import {
+  enqueuePunch, flushQueue, getPendingFor, getFailedFor, clearFailedFor,
+} from '../utils/punchQueue';
 import { getStoredUser } from '../api/authApi';
 import PunchModal from '../components/PunchModal';
+
+// How often to retry a stuck queue while the screen is open. The app has no
+// connectivity listener (adding one would mean a new native module and a store
+// release), so we poll gently and also flush whenever the app is foregrounded.
+const RETRY_INTERVAL_MS = 20000;
 
 // ─── Live Clock — isolated so the 1s tick doesn't re-render HomeScreen ────────
 const LiveClock = memo(() => {
@@ -127,12 +135,16 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
   const [employee, setEmployee]         = useState(null);
   const [checkins, setCheckins]         = useState([]);
   const [loading, setLoading]           = useState(true);
-  const [punching, setPunching]         = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [error, setError]               = useState('');
   const [lastMsg, setLastMsg]           = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [isOffline, setIsOffline]       = useState(false);
+  const [pending, setPending]           = useState([]);   // punches awaiting sync
+
+  // Mirrors the merged checkin list so callbacks can read it without going
+  // stale, the same reason employeeRef exists.
+  const mergedRef = useRef([]);
 
   const saveEmployee = useCallback((emp) => {
     employeeRef.current = emp;
@@ -183,12 +195,77 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
     }
   }, [saveEmployee, handleSessionExpired]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Offline punch queue ─────────────────────────────────────────────────────
+
+  // Pull the queue into state, and tell the user about anything the server
+  // refused outright (geofence, validation) — those never retry on their own.
+  const refreshPending = useCallback(async () => {
+    const emp = employeeRef.current;
+    if (!emp) return;
+    const [queued, rejected] = await Promise.all([
+      getPendingFor(emp.name),
+      getFailedFor(emp.name),
+    ]);
+    setPending(queued);
+
+    if (rejected.length) {
+      const body = rejected
+        .map((p) => `${p.logType} at ${formatTime(p.time)}\n${p.lastError}`)
+        .join('\n\n');
+      Alert.alert(
+        rejected.length > 1 ? 'Some punches were not recorded' : 'Punch not recorded',
+        body,
+        [{
+          text: 'OK',
+          onPress: async () => {
+            await clearFailedFor(emp.name);
+            setPending(await getPendingFor(emp.name));
+          },
+        }],
+      );
+    }
+  }, []);
+
+  // Drain the queue, then reconcile with the server if anything landed.
+  const syncNow = useCallback(async () => {
+    const emp = employeeRef.current;
+    if (!emp) return;
+    const result = await flushQueue();
+    if (result.skipped) return;           // another flush was already running
+    await refreshPending();
+    if (result.sent > 0) loadData(false); // pull the authoritative records
+  }, [refreshPending, loadData]);
+
   useEffect(() => { loadData(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Try to sync once the employee is known, whenever the app returns to the
+  // foreground, and periodically while anything is still waiting.
+  //
+  // Keyed on the employee id rather than mount: syncNow() needs employeeRef,
+  // which loadData fills in asynchronously. Firing on mount alone would skip
+  // the flush on every cold start — exactly when a queue left over from
+  // yesterday's dead zone needs draining.
+  const employeeId = employee?.name;
+  useEffect(() => {
+    if (!employeeId) return undefined;
+    syncNow();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') syncNow();
+    });
+    return () => sub.remove();
+  }, [employeeId, syncNow]);
+
+  useEffect(() => {
+    if (pending.length === 0) return undefined;
+    const id = setInterval(syncNow, RETRY_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [pending.length, syncNow]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
+    syncNow();
     loadData(false);
-  }, [loadData]);
+  }, [loadData, syncNow]);
 
   const handleOpenModal = useCallback(() => {
     if (!employeeRef.current) return;
@@ -197,26 +274,34 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
 
   const handleCloseModal = useCallback(() => setModalVisible(false), []);
 
+  // Record the punch locally and return control to the user immediately. The
+  // upload and the server call happen afterwards, in the background, with
+  // retries — so a slow or absent connection no longer holds up the UI.
   const handleModalConfirm = useCallback(async ({ photo, location, notes }) => {
-    const emp     = employeeRef.current;
-    const logType = getNextPunchType(checkins);
-    setPunching(true);
+    const emp = employeeRef.current;
+    if (!emp) return;
+
+    const logType = getNextPunchType(mergedRef.current);
+    const now     = new Date();
+
+    setModalVisible(false);   // close first — nothing below needs the network
     setLastMsg('');
-    try {
-      await createCheckin(emp.name, logType, { photo, location, notes });
-      setModalVisible(false);
-      const logs = await getTodayCheckins(emp.name, formatDate(new Date()));
-      setCheckins(logs);
-      const t = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-      setLastMsg(logType === 'IN' ? `Checked In at ${t}` : `Checked Out at ${t}`);
-    } catch (err) {
-      setModalVisible(false);
-      if (err.sessionExpired) { handleSessionExpired(); return; }
-      Alert.alert('Punch Failed', err.message || 'Could not record attendance.');
-    } finally {
-      setPunching(false);
-    }
-  }, [checkins, handleSessionExpired]);
+
+    await enqueuePunch({
+      employeeId: emp.name,
+      logType,
+      time:       formatDateTime(now),
+      photoUri:   photo?.uri || null,
+      location,
+      notes,
+    });
+    setPending(await getPendingFor(emp.name));
+
+    const t = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    setLastMsg(logType === 'IN' ? `Checked In at ${t}` : `Checked Out at ${t}`);
+
+    syncNow();   // deliberately not awaited
+  }, [syncNow]);
 
   const getGreeting = useCallback(() => {
     const h = new Date().getHours();
@@ -234,12 +319,27 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
     );
   }
 
-  const nextType      = getNextPunchType(checkins);
+  // Queued punches are shown alongside confirmed ones and count towards every
+  // derived value. Without this, tapping "Punch In" offline would leave the
+  // button still reading "Punch In" and today's hours unchanged, which reads as
+  // the punch having been lost.
+  const merged = [
+    ...checkins,
+    ...pending.map((p) => ({
+      name:     p.id,
+      log_type: p.logType,
+      time:     p.time,
+      _pending: true,
+    })),
+  ].sort((a, b) => new Date(a.time) - new Date(b.time));
+  mergedRef.current = merged;
+
+  const nextType      = getNextPunchType(merged);
   const isPunchIn     = nextType === 'IN';
-  const isCurrentlyIn = checkins.length > 0 && checkins[checkins.length - 1].log_type === 'IN';
-  const hoursWorked   = calcWorkingHours(checkins);
-  const firstIn       = checkins.find((c) => c.log_type === 'IN');
-  const lastOut       = [...checkins].reverse().find((c) => c.log_type === 'OUT');
+  const isCurrentlyIn = merged.length > 0 && merged[merged.length - 1].log_type === 'IN';
+  const hoursWorked   = calcWorkingHours(merged);
+  const firstIn       = merged.find((c) => c.log_type === 'IN');
+  const lastOut       = [...merged].reverse().find((c) => c.log_type === 'OUT');
 
   return (
     <View style={styles.container}>
@@ -250,7 +350,7 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
         logType={nextType}
         onConfirm={handleModalConfirm}
         onCancel={handleCloseModal}
-        punching={punching}
+        punching={false}
       />
 
       {/* ── Header ── */}
@@ -291,17 +391,29 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
             </View>
           )}
 
+          {/* Reassurance that a queued punch is recorded, not lost. */}
+          {pending.length > 0 && (
+            <View style={styles.syncBadge}>
+              <ActivityIndicator size="small" color="#BFDBFE" style={{ marginRight: 6 }} />
+              <Text style={styles.syncBadgeText}>
+                {pending.length === 1
+                  ? 'Punch saved · syncing…'
+                  : `${pending.length} punches saved · syncing…`}
+              </Text>
+            </View>
+          )}
+
           {/* Status chip */}
           <View style={[styles.statusChip,
             isCurrentlyIn ? styles.statusChipIn : styles.statusChipOut]}>
             <View style={[styles.statusDot, {
               backgroundColor: isCurrentlyIn ? C.in
-                : checkins.length > 0 ? '#6B7280' : C.warn,
+                : merged.length > 0 ? '#6B7280' : C.warn,
             }]} />
             <Text style={styles.statusChipText}>
               {isCurrentlyIn
                 ? 'Currently Checked In'
-                : checkins.length > 0
+                : merged.length > 0
                   ? 'Checked Out'
                   : 'Not Checked In Today'}
             </Text>
@@ -323,7 +435,7 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
             </Text>
           ) : null}
 
-          <PunchButton isPunchIn={isPunchIn} onPress={handleOpenModal} disabled={punching} />
+          <PunchButton isPunchIn={isPunchIn} onPress={handleOpenModal} disabled={false} />
 
           <Text style={styles.punchHint}>
             {isPunchIn ? 'Tap to record your Check-In' : 'Tap to record your Check-Out'}
@@ -353,28 +465,30 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
           <View style={styles.logCardHeader}>
             <Text style={styles.logCardTitle}>Today's Punches</Text>
             <View style={styles.logCount}>
-              <Text style={styles.logCountText}>{checkins.length}</Text>
+              <Text style={styles.logCountText}>{merged.length}</Text>
             </View>
           </View>
 
-          {checkins.length === 0 ? (
+          {merged.length === 0 ? (
             <View style={styles.emptyLog}>
               <Text style={styles.emptyLogIcon}>🕐</Text>
               <Text style={styles.emptyLogText}>No punches recorded yet today</Text>
             </View>
           ) : (
             <View>
-              {[...checkins].reverse().map((log, idx) => (
+              {[...merged].reverse().map((log, idx) => (
                 <View key={log.name} style={[
                   styles.logRow,
-                  idx < checkins.length - 1 && styles.logRowBorder,
+                  idx < merged.length - 1 && styles.logRowBorder,
                 ]}>
                   <View style={[styles.logDot, {
                     backgroundColor: log.log_type === 'IN' ? C.in : C.out,
                   }]} />
                   <View style={styles.logRowInfo}>
                     <Text style={styles.logRowTime}>{formatTime(log.time)}</Text>
-                    {log.shift ? <Text style={styles.logRowShift}>{log.shift}</Text> : null}
+                    {log._pending
+                      ? <Text style={styles.logRowPending}>Waiting to sync</Text>
+                      : log.shift ? <Text style={styles.logRowShift}>{log.shift}</Text> : null}
                   </View>
                   <View style={[
                     styles.logTypeBadge,
@@ -449,6 +563,13 @@ const styles = StyleSheet.create({
     borderRadius: 20, marginTop: 8, marginBottom: 4,
   },
   offlineBadgeText: { fontSize: 11, color: '#FDE68A', fontWeight: '600' },
+  syncBadge: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(59,130,246,0.22)',
+    paddingHorizontal: 12, paddingVertical: 4,
+    borderRadius: 20, marginTop: 8, marginBottom: 4,
+  },
+  syncBadgeText: { fontSize: 11, color: '#BFDBFE', fontWeight: '600' },
   statusChip: {
     flexDirection: 'row', alignItems: 'center',
     marginTop: 12, paddingHorizontal: 14, paddingVertical: 6,
@@ -539,6 +660,7 @@ const styles = StyleSheet.create({
   logRowInfo:   { flex: 1 },
   logRowTime:   { fontSize: 15, fontWeight: '700', color: C.textPrimary },
   logRowShift:  { fontSize: 11, color: C.textMuted, marginTop: 1 },
+  logRowPending: { fontSize: 11, color: '#3B82F6', marginTop: 1, fontWeight: '600' },
   logTypeBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
   logBadgeIn:   { backgroundColor: C.inLight },
   logBadgeOut:  { backgroundColor: C.outLight },
