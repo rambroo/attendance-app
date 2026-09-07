@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
-import { C } from '../utils/theme';
+import { C, themed } from '../utils/theme';
 import { validateAndConnect, saveSiteConfig } from '../utils/siteConfig';
 
 const SiteSetupScreen = ({ onSiteConfigured }) => {
@@ -57,7 +57,7 @@ const SiteSetupScreen = ({ onSiteConfigured }) => {
           {error ? <View style={s.errorBox}><Text style={s.errorText}>⚠ {error}</Text></View> : null}
 
           <TouchableOpacity style={[s.btn, loading && s.btnOff]} onPress={handleConnect} disabled={loading} activeOpacity={0.85}>
-            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.btnText}>Connect →</Text>}
+            {loading ? <ActivityIndicator color={C.onBrand} size="small" /> : <Text style={s.btnText}>Connect →</Text>}
           </TouchableOpacity>
         </View>
 
@@ -72,7 +72,7 @@ const SiteSetupScreen = ({ onSiteConfigured }) => {
   );
 };
 
-const s = StyleSheet.create({
+const s = themed(() => StyleSheet.create({
   root:   { flex: 1, backgroundColor: C.bg },
   scroll: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 70, paddingBottom: 48, justifyContent: 'center' },
 
@@ -92,12 +92,12 @@ const s = StyleSheet.create({
   inputError: { borderColor: C.error },
 
   errorBox:  { backgroundColor: C.errorLight, borderRadius: 10, padding: 12, marginBottom: 14, borderLeftWidth: 3, borderLeftColor: C.error },
-  errorText: { color: '#991B1B', fontSize: 13, fontWeight: '500' },
+  errorText: { color: C.errorText, fontSize: 13, fontWeight: '500' },
 
   btn:     { backgroundColor: C.brand, borderRadius: 50, paddingVertical: 15, alignItems: 'center', shadowColor: C.brandDark, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 },
   btnOff:  { backgroundColor: C.textMuted, shadowOpacity: 0, elevation: 0 },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
+  btnText: { color: C.onBrand, fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
 
-});
+}));
 
 export default SiteSetupScreen;

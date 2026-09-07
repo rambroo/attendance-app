@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { C } from '../utils/theme';
+import { C, themed } from '../utils/theme';
 import { getSalarySlips, getSalarySlipDetail } from '../api/payrollApi';
 
 // ── Salary Slip Detail Modal ──────────────────────────────────────────────────
@@ -143,27 +143,27 @@ const SlipDetail = memo(({ visible, slip, onClose }) => {
   );
 });
 
-const sd = StyleSheet.create({
+const sd = themed(() => StyleSheet.create({
   root:          { flex: 1, backgroundColor: C.bg },
   header:        { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 12 },
   backBtn:       { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backArrow:     { fontSize: 30, color: '#fff', lineHeight: 34 },
-  headerTitle:   { fontSize: 18, fontWeight: '700', color: '#fff' },
-  headerSub:     { fontSize: 13, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
+  backArrow:     { fontSize: 30, color: C.heroText, lineHeight: 34 },
+  headerTitle:   { fontSize: 18, fontWeight: '700', color: C.heroText },
+  headerSub:     { fontSize: 13, color: C.heroTextMuted, marginTop: 1 },
   body:          { padding: 16, paddingBottom: 40 },
 
   netCard:       { backgroundColor: C.primary, borderRadius: 16, padding: 24, alignItems: 'center', marginBottom: 16 },
-  netLabel:      { fontSize: 14, color: 'rgba(255,255,255,0.75)', fontWeight: '600', marginBottom: 4 },
-  netAmount:     { fontSize: 32, fontWeight: '800', color: '#fff', marginBottom: 4 },
-  netPeriod:     { fontSize: 13, color: 'rgba(255,255,255,0.65)' },
+  netLabel:      { fontSize: 14, color: C.heroTextMuted, fontWeight: '600', marginBottom: 4 },
+  netAmount:     { fontSize: 32, fontWeight: '800', color: C.heroText, marginBottom: 4 },
+  netPeriod:     { fontSize: 13, color: C.heroTextMuted },
 
-  summaryRow:    { backgroundColor: '#fff', borderRadius: 12, flexDirection: 'row', padding: 16, marginBottom: 16, elevation: 1 },
+  summaryRow:    { backgroundColor: C.card, borderRadius: 12, flexDirection: 'row', padding: 16, marginBottom: 16, elevation: 1 },
   summaryItem:   { flex: 1, alignItems: 'center' },
   summaryLabel:  { fontSize: 12, color: C.textMuted, marginBottom: 4 },
   summaryVal:    { fontSize: 18, fontWeight: '700', color: C.textPrimary },
   summaryDivider: { width: 1, backgroundColor: C.border, marginHorizontal: 8 },
 
-  section:       { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, elevation: 1 },
+  section:       { backgroundColor: C.card, borderRadius: 12, padding: 16, marginBottom: 12, elevation: 1 },
   sectionTitle:  { fontSize: 14, fontWeight: '700', color: C.textSecond, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
   lineRow:       { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border },
   lineLabel:     { fontSize: 14, color: C.textPrimary, flex: 1 },
@@ -171,7 +171,7 @@ const sd = StyleSheet.create({
   totalRow:      { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 10, marginTop: 4 },
   totalLabel:    { fontSize: 14, fontWeight: '700', color: C.textPrimary },
   totalVal:      { fontSize: 14, fontWeight: '700', color: C.brand },
-});
+}));
 
 // ── Slip List Item ────────────────────────────────────────────────────────────
 
@@ -205,8 +205,8 @@ const SlipCard = memo(({ item, onPress }) => {
   );
 });
 
-const sc = StyleSheet.create({
-  card:       { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4 },
+const sc = themed(() => StyleSheet.create({
+  card:       { backgroundColor: C.card, borderRadius: 12, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', elevation: 2, shadowColor: C.shadow, shadowOpacity: 0.05, shadowRadius: 4 },
   left:       { flex: 1 },
   period:     { fontSize: 16, fontWeight: '700', color: C.textPrimary, marginBottom: 4 },
   metaRow:    { flexDirection: 'row', alignItems: 'center' },
@@ -218,7 +218,7 @@ const sc = StyleSheet.create({
   draftBadge: { backgroundColor: C.warnLight, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, marginTop: 4 },
   draftText:  { fontSize: 11, color: C.warn, fontWeight: '600' },
   chevron:    { fontSize: 22, color: C.textMuted },
-});
+}));
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
@@ -291,15 +291,15 @@ export default function SalaryScreen({ onLogout, onSessionExpired }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => StyleSheet.create({
   root:         { flex: 1, backgroundColor: C.bg },
   header:       { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
-  headerTitle:  { fontSize: 20, fontWeight: '700', color: '#fff' },
-  logoutBtn:    { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 8 },
-  logoutText:   { color: '#fff', fontSize: 13, fontWeight: '600' },
+  headerTitle:  { fontSize: 20, fontWeight: '700', color: C.heroText },
+  logoutBtn:    { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.heroChip, borderRadius: 8 },
+  logoutText:   { color: C.heroText, fontSize: 13, fontWeight: '600' },
   listHeader:   { fontSize: 13, color: C.textMuted, marginBottom: 10 },
   empty:        { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
   emptyIcon:    { fontSize: 52, marginBottom: 12 },
   emptyText:    { fontSize: 16, fontWeight: '700', color: C.textPrimary, marginBottom: 6 },
   emptySubText: { fontSize: 14, color: C.textMuted, textAlign: 'center' },
-});
+}));

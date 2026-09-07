@@ -21,7 +21,7 @@ import SiteSetupScreen from './src/screens/SiteSetupScreen';
 import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from './src/api/authApi';
 import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
 import { resetServerCaps } from './src/utils/serverCaps';
-import { C } from './src/utils/theme';
+import { C, themed, useThemeName, loadSavedTheme } from './src/utils/theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -49,7 +49,7 @@ function MainTabs({ loginKey, handleLogout, handleSessionExpired }) {
         headerShown: false,
         tabBarStyle: [styles.tabBar, { height: 54 + navBarPad, paddingBottom: navBarPad }],
         tabBarActiveTintColor: C.brand,
-        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarInactiveTintColor: C.textMuted,
         tabBarLabelStyle: styles.tabLabel,
         tabBarIcon: ({ focused }) => (
           <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>
@@ -119,6 +119,11 @@ class ErrorBoundary extends React.Component {
 }
 
 function Root() {
+  // Stylesheets are refilled in place on a theme change (see utils/theme.js),
+  // but memoised subtrees would keep their old rendered output. Keying the
+  // whole tree on the theme name remounts everything, which is cheap for an
+  // action this rare and guarantees nothing is left half-restyled.
+  const themeName = useThemeName();
   const [appReady,  setAppReady]  = useState(false);
   const [siteReady, setSiteReady] = useState(false);
   const [kioskMode, setKioskMode] = useState(false);
@@ -128,10 +133,13 @@ function Root() {
   useEffect(() => {
     const init = async () => {
       try {
+        // Restore the theme before anything paints, so a Midnight/Onyx user
+        // never sees a frame of the light theme while the splash lifts.
         const [siteOk, kioskOk, authOk] = await Promise.all([
           isSiteConfigured(),
           isKioskMode(),
           isAuthenticated(),
+          loadSavedTheme(),
         ]);
         setSiteReady(siteOk);
         setKioskMode(kioskOk);
@@ -254,7 +262,7 @@ function Root() {
   // ── Site setup ──
   if (!siteReady) {
     return (
-      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <View key={themeName} style={{ flex: 1 }} onLayout={onLayoutRootView}>
         <SiteSetupScreen onSiteConfigured={handleSiteConfigured} />
       </View>
     );
@@ -263,7 +271,7 @@ function Root() {
   // ── Kiosk mode ──
   if (kioskMode) {
     return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView key={themeName} style={{ flex: 1 }}>
         <SafeAreaProvider>
           <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
             <KioskScreen onExitKiosk={handleExitKiosk} />
@@ -276,7 +284,7 @@ function Root() {
   // ── Login ──
   if (!loggedIn) {
     return (
-      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <View key={themeName} style={{ flex: 1 }} onLayout={onLayoutRootView}>
         <LoginScreen
           onLoginSuccess={handleLoginSuccess}
           onChangeSite={handleChangeSite}
@@ -288,7 +296,7 @@ function Root() {
 
   // ── Main App ──
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView key={themeName} style={{ flex: 1 }}>
       <SafeAreaProvider>
         <NavigationContainer onReady={onLayoutRootView}>
           <MainTabs
@@ -310,7 +318,7 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   splash: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
   errorRoot: {
     flex: 1, justifyContent: 'center', alignItems: 'center',
@@ -323,16 +331,16 @@ const styles = StyleSheet.create({
     backgroundColor: C.brand, borderRadius: 50,
     paddingVertical: 14, paddingHorizontal: 48,
   },
-  errorBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  errorBtnText: { color: C.onBrand, fontSize: 15, fontWeight: '700' },
   tabBar: {
     // height + paddingBottom are set dynamically in MainTabs using safe-area
     // insets, so the bar never gets covered by an Android 3-button nav bar.
-    backgroundColor: '#fff',
+    backgroundColor: C.card,
     borderTopColor: C.border,
     borderTopWidth: 1,
     paddingTop: 6,
     elevation: 10,
-    shadowColor: '#000',
+    shadowColor: C.shadow,
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
@@ -340,4 +348,4 @@ const styles = StyleSheet.create({
   tabLabel:     { fontSize: 11, fontWeight: '600' },
   tabIcon:      { fontSize: 20 },
   tabIconActive: { transform: [{ scale: 1.1 }] },
-});
+}));
