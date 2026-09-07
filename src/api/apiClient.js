@@ -29,19 +29,39 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Decide whether a failed response means "the session is gone", as opposed to
+// "you are logged in but not allowed to do that".
+//
+// Frappe defines a SessionExpired exception but never raises it. An expired or
+// invalid `sid` instead makes the request fall through as Guest, with
+// `session_expired: 1` set on the response body (see frappe/sessions.py,
+// get_session_record). The resulting status is a plain 403 PermissionError —
+// indistinguishable from a real permission denial by status code alone, which
+// is why we key on the flag and not on 403.
+const isSessionExpired = (error) => {
+  const res = error.response;
+  if (!res) return false;
+
+  const data = res.data || {};
+  if (data.session_expired === 1 || data.session_expired === '1') return true;
+
+  // Maintenance mode, or a session stopped by an administrator.
+  if (res.status === 503 && data.exc_type === 'SessionStopped') return true;
+
+  // API-key credentials rejected outright.
+  if (res.status === 401) return true;
+
+  return false;
+};
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response) {
       console.error('API Error:', error.response.status, JSON.stringify(error.response.data));
-      const excType = error.response.data?.exc_type;
-      if (error.response.status === 503 && excType === 'SessionStopped') {
-        await AsyncStorage.multiRemove([
-          'authToken', 'apiKey', 'authMethod',
-          'userEmail', 'userName', 'isLoggedIn', 'sessionId',
-        ]);
-        error.sessionExpired = true;
-      }
+      // Flag only — the auth keys are deliberately left in place so that
+      // silentReLogin() can run before we decide to show the login screen.
+      if (isSessionExpired(error)) error.sessionExpired = true;
     } else if (error.request) {
       console.error('Network Error:', error.message);
     } else {

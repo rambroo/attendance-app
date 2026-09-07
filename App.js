@@ -20,6 +20,7 @@ import KioskScreen from './src/screens/KioskScreen';
 import SiteSetupScreen from './src/screens/SiteSetupScreen';
 import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from './src/api/authApi';
 import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
+import { resetServerCaps } from './src/utils/serverCaps';
 import { C } from './src/utils/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -136,10 +137,13 @@ function Root() {
         setKioskMode(kioskOk);
 
         if (!kioskOk && authOk && siteOk) {
+          // Cold start is offline-safe: no network call here. If the server-side
+          // session has lapsed, the first API call reports it and we recover
+          // through handleSessionExpired below.
           setLoggedIn(true);
         } else if (!kioskOk && siteOk && !authOk) {
-          const reLoggedIn = await silentReLogin();
-          setLoggedIn(reLoggedIn);
+          const { ok } = await silentReLogin();
+          setLoggedIn(ok);
         }
       } catch (e) {
         console.warn('Init error:', e);
@@ -187,6 +191,8 @@ function Root() {
           text: 'Change Site',
           style: 'destructive',
           onPress: async () => {
+            // Caps are keyed on siteUrl, so drop them before it is cleared.
+            await resetServerCaps();
             await Promise.all([
               clearSiteConfig(),
               AsyncStorage.multiRemove(AUTH_KEYS),
@@ -206,13 +212,16 @@ function Root() {
   }, []);
 
   // Called when an API response signals the session expired.
-  // Tries silent re-login first; only falls back to login screen if that fails.
+  // Tries silent re-login first; only falls back to the login screen when the
+  // credentials themselves are gone or rejected. A network failure here is NOT
+  // a logout — the user keeps their session and their cached data, and the next
+  // request retries. This is what stopped users being bounced to login on a
+  // weak connection.
   const handleSessionExpired = useCallback(async () => {
-    const reLoggedIn = await silentReLogin();
-    if (!reLoggedIn) {
+    const { ok, reason } = await silentReLogin();
+    if (!ok && reason !== 'network') {
       setLoggedIn(false);
     }
-    // If reLoggedIn is true, the user stays on the current screen — they won't notice anything.
   }, []);
 
   const handleSwitchToKiosk = useCallback(() => {
