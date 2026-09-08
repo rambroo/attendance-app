@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from './apiClient';
+import { hasPrivateSelfieSupport } from '../utils/serverCaps';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -195,27 +196,37 @@ const SELFIE_ERROR      = 'Selfie is mandatory';
 // Upload selfie as binary multipart BEFORE creating the checkin.
 // This is the same binary upload path that successfully wrote selfie files in April 2026.
 // Returns the Frappe file_url (e.g. "/private/files/selfie_xxx.jpg").
-const uploadSelfieGetUrl = async (photo) => {
-  const AS = (await import('@react-native-async-storage/async-storage')).default;
+const uploadSelfieGetUrl = async (photoUri) => {
   const [siteUrl, authMethod] = await Promise.all([
-    AS.getItem('siteUrl'),
-    AS.getItem('authMethod'),
+    AsyncStorage.getItem('siteUrl'),
+    AsyncStorage.getItem('authMethod'),
   ]);
   if (!siteUrl) throw new Error('No site configured.');
 
   const headers = {};
   if (authMethod === 'api_key') {
-    const token = await AS.getItem('authToken');
+    const token = await AsyncStorage.getItem('authToken');
     if (token) headers['Authorization'] = `Basic ${token}`;
   } else {
-    const sid = await AS.getItem('sessionId');
+    const sid = await AsyncStorage.getItem('sessionId');
     if (sid) headers['Cookie'] = `sid=${sid}`;
   }
 
   const filename = `selfie_${Date.now()}.jpg`;
   const formData = new FormData();
-  formData.append('file', { uri: photo.uri, type: 'image/jpeg', name: filename });
-  formData.append('is_private', '0');   // public — Image on Android can't load private files (Cookie stripped by OkHttp)
+  formData.append('file', { uri: photoUri, type: 'image/jpeg', name: filename });
+  // Belt-and-braces server-side cap: the capture is already ~720px (see
+  // utils/camera.js), this just stops an unexpectedly large frame from being
+  // stored at full size.
+  formData.append('optimize', '1');
+  formData.append('max_width', '1280');
+  // Selfies are photos of people (employees, and via kiosk mode, students), so
+  // a public file_url — readable by anyone with the link, forever — is the
+  // wrong default. Upload them private wherever the site can serve them back
+  // through next_attendance's signed URLs, and fall back to the old public
+  // path on sites that can't, so the selfie stays viewable either way.
+  const canGoPrivate = await hasPrivateSelfieSupport();
+  formData.append('is_private', canGoPrivate ? '1' : '0');
   formData.append('folder', 'Home/Attachments');
 
   // Raw fetch has no timeout — abort after 45s so the punch spinner can't hang forever
@@ -248,19 +259,28 @@ const uploadSelfieGetUrl = async (photo) => {
 // Two-step punch:
 //  1. Upload selfie binary → get file_url (proven path used in April 2026)
 //  2. POST to attendance_app_punch Server Script with file_url + location
-export const createCheckin = async (employeeId, logType, options = {}) => {
+//
+// This is the raw network path. UI code should not call it directly — punches
+// go through utils/punchQueue, which calls this in the background and retries.
+//
+// `time` is the moment the punch was taken, which is not necessarily now: a
+// queued punch may sync much later and must still record when it happened.
+//
+// Errors the server actively refused are tagged `permanent` so the queue knows
+// not to retry them.
+export const sendCheckin = async (employeeId, logType, options = {}) => {
   try {
-    const { location, photo, notes } = options;
+    const { location, photoUri, notes, time } = options;
 
     let selfieFileUrl = null;
-    if (photo?.uri) {
-      selfieFileUrl = await uploadSelfieGetUrl(photo);
+    if (photoUri) {
+      selfieFileUrl = await uploadSelfieGetUrl(photoUri);
     }
 
     const payload = {
       employee: employeeId,
       log_type: logType,
-      time:     formatDateTime(new Date()),
+      time:     time || formatDateTime(new Date()),
     };
     if (location?.latitude != null && location?.longitude != null) {
       payload.latitude  = location.latitude;
@@ -276,6 +296,8 @@ export const createCheckin = async (employeeId, logType, options = {}) => {
     const response = await apiClient.post('/method/attendance_app_punch', payload);
     return response.data.message;
   } catch (error) {
+    // Session expiry and network failures are retryable — leave them untagged
+    // so the queue tries again rather than discarding the punch.
     if (error.sessionExpired) throw sessionExpiredError();
     // uploadSelfieGetUrl errors have no .response
     if (!error.response) throw error;
@@ -283,16 +305,22 @@ export const createCheckin = async (employeeId, logType, options = {}) => {
     const raw = parseFrappeError(error);
     console.error('Error creating checkin:', raw);
 
+    // The server responded and refused. Retrying will fail identically, so tag
+    // these as permanent and let the user see why.
+    const reject = (message) => {
+      const e = new Error(message);
+      e.permanent = true;
+      throw e;
+    };
+
     if (raw?.includes(GEO_ERROR_SNIPPET) || raw?.includes(GEO_ERROR2)) {
-      throw new Error(
-        'Your organization requires GPS location for every check-in.\n\nPlease enable location access in your device settings and try again.'
-      );
+      reject('Your organization requires GPS location for every check-in.\n\nPlease enable location access in your device settings and try again.');
     }
     if (raw?.includes(SELFIE_ERROR)) {
-      throw new Error('A selfie photo is required for check-in. Please grant camera access and try again.');
+      reject('A selfie photo is required for check-in. Please grant camera access and try again.');
     }
     // Geofence block: "Check-in blocked: Xm away from …" — already user-friendly
-    throw new Error(raw || 'Failed to record punch. Please try again.');
+    reject(raw || 'Failed to record punch. Please try again.');
   }
 };
 
@@ -359,6 +387,49 @@ export const getDateCheckins = async (employeeId, dateStr) => {
     if (error.sessionExpired) throw sessionExpiredError();
     return [];
   }
+};
+
+// Resolve displayable selfie URLs for a set of Employee Checkins.
+//
+// On a site with next_attendance, selfies are private and this exchanges the
+// checkin names for short-lived signed URLs — the server checks read
+// permission per checkin, and the signature means <Image> needs no auth
+// headers (which is the part Android breaks on).
+//
+// On a site without it, selfies are public and their stored file_url is used
+// directly. Callers don't need to care which. Returns { checkinName: url }.
+export const getSelfieUrls = async (checkins) => {
+  // Accept either names or full checkin rows, so callers that already hold the
+  // record don't have to re-fetch it for the fallback path.
+  const rows = (checkins || [])
+    .filter(Boolean)
+    .map((c) => (typeof c === 'string' ? { name: c } : c));
+  if (!rows.length) return {};
+
+  const siteUrl = await AsyncStorage.getItem('siteUrl');
+
+  if (await hasPrivateSelfieSupport()) {
+    try {
+      const response = await apiClient.post('/method/next_attendance.api.sign_selfies', {
+        checkins: JSON.stringify(rows.map((r) => r.name)),
+      });
+      const signed = response.data.message || {};
+      return Object.fromEntries(
+        Object.entries(signed).map(([name, path]) => [name, `${siteUrl}${path}`])
+      );
+    } catch (error) {
+      if (error.sessionExpired) throw sessionExpiredError();
+      console.warn('Could not sign selfie URLs:', error.message);
+      return {};
+    }
+  }
+
+  // Public-file site: the stored path is already directly loadable.
+  return Object.fromEntries(
+    rows
+      .filter((r) => r.custom_selfie_image)
+      .map((r) => [r.name, `${siteUrl}${r.custom_selfie_image}`])
+  );
 };
 
 export const getMonthCheckins = async (employeeId, year, month) => {

@@ -6,7 +6,8 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
-import { C } from '../utils/theme';
+import { C, themed } from '../utils/theme';
+import { pickPictureSize, CAPTURE_QUALITY } from '../utils/camera';
 
 const MAX_LOCATION_RETRIES = 3;
 const LOCATION_TIMEOUT_MS  = 12000;
@@ -32,7 +33,20 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
   const [locationStatus,       setLocationStatus]       = useState('fetching');
   const [locationRetries,      setLocationRetries]      = useState(0);
   const [forceWithoutLocation, setForceWithoutLocation] = useState(false);
+  const [pictureSize,          setPictureSize]          = useState(undefined);
   const cameraRef = useRef(null);
+
+  // Pick a modest capture resolution once the camera is up. Left undefined the
+  // camera shoots at full sensor size, producing multi-megabyte selfies that
+  // dominate punch time on a mobile uplink.
+  const handleCameraReady = useCallback(async () => {
+    if (pictureSize) return;
+    try {
+      const sizes = await cameraRef.current?.getAvailablePictureSizesAsync();
+      const chosen = pickPictureSize(sizes);
+      if (chosen) setPictureSize(chosen);
+    } catch { /* keep the camera default rather than failing the punch */ }
+  }, [pictureSize]);
 
   const isPunchIn = logType === 'IN';
   const accent    = isPunchIn ? C.in : C.out;
@@ -107,7 +121,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
     if (!cameraRef.current) return;
     try {
       const result = await cameraRef.current.takePictureAsync({
-        quality: 0.5, base64: false, skipProcessing: false,
+        quality: CAPTURE_QUALITY, base64: false, skipProcessing: false,
       });
       setPhoto({ uri: result.uri });
       setPhase('preview');
@@ -170,14 +184,20 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
 
   return (
     <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={onCancel}>
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
+      <StatusBar barStyle="light-content" backgroundColor={C.shell} />
 
       {/* ══ Camera Phase ══════════════════════════════════════════════════════ */}
       {phase === 'camera' && (
         <View style={S.cameraContainer}>
           {cameraPermission?.granted ? (
             <View style={{ flex: 1 }}>
-              <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
+              <CameraView
+                ref={cameraRef}
+                style={StyleSheet.absoluteFill}
+                facing="front"
+                pictureSize={pictureSize}
+                onCameraReady={handleCameraReady}
+              />
 
               {/* Top bar */}
               <View style={S.camTopBar}>
@@ -215,7 +235,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
             </View>
           ) : (
             <View style={S.camLoading}>
-              <ActivityIndicator size="large" color="#fff" />
+              <ActivityIndicator size="large" color={C.shellText} />
               <Text style={S.camLoadingText}>Starting camera…</Text>
             </View>
           )}
@@ -225,7 +245,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
       {/* ══ Preview Phase ═════════════════════════════════════════════════════ */}
       {phase === 'preview' && (
         <KeyboardAvoidingView
-          style={{ flex: 1, backgroundColor: '#000' }}
+          style={{ flex: 1, backgroundColor: C.shell }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <Image source={{ uri: photo.uri }} style={S.previewImage} />
@@ -320,7 +340,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
                 value={notes}
                 onChangeText={setNotes}
                 placeholder={logType === 'IN' ? 'e.g. Client visit, working from site…' : 'e.g. Left early - doctor appointment…'}
-                placeholderTextColor="#6B7280"
+                placeholderTextColor={C.shellTextFaint}
                 multiline
                 numberOfLines={2}
                 maxLength={250}
@@ -345,7 +365,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
                 activeOpacity={0.85}
               >
                 {punching ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={C.onBrand} size="small" />
                 ) : locationStatus === 'fetching' ? (
                   <Text style={S.confirmBtnText}>Waiting for GPS…</Text>
                 ) : isWarnPunch ? (
@@ -393,50 +413,50 @@ const LocationIndicator = memo(({ status, location, compact }) => {
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const S = StyleSheet.create({
+const S = themed(() => StyleSheet.create({
   // ── Camera permission denied ──
   permContainer: {
     flex: 1, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: '#0a0a0a', padding: 32,
+    backgroundColor: C.shellDeep, padding: 32,
   },
   permClose: {
     position: 'absolute', top: 52, right: 24,
     width: 36, height: 36, borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: C.shellInputEdge,
     justifyContent: 'center', alignItems: 'center',
   },
-  permCloseText:     { color: '#fff', fontSize: 16, fontWeight: '700' },
+  permCloseText:     { color: C.shellText, fontSize: 16, fontWeight: '700' },
   permIcon:          { fontSize: 56, marginBottom: 16 },
-  permTitle:         { fontSize: 20, fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: 10 },
-  permBody:          { fontSize: 14, color: '#9CA3AF', textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+  permTitle:         { fontSize: 20, fontWeight: '700', color: C.shellText, textAlign: 'center', marginBottom: 10 },
+  permBody:          { fontSize: 14, color: C.shellTextMuted, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
   permPrimaryBtn: {
     borderRadius: 50, paddingVertical: 14, paddingHorizontal: 24,
     marginBottom: 12, width: '100%', alignItems: 'center',
   },
-  permPrimaryText:   { color: '#fff', fontSize: 15, fontWeight: '700' },
+  permPrimaryText:   { color: C.onBrand, fontSize: 15, fontWeight: '700' },
   permSecondaryBtn: {
-    borderWidth: 1, borderColor: '#444', borderRadius: 50,
+    borderWidth: 1, borderColor: C.shellBorder, borderRadius: 50,
     paddingVertical: 12, paddingHorizontal: 24,
     width: '100%', alignItems: 'center',
   },
-  permSecondaryText: { color: '#ccc', fontSize: 14, fontWeight: '600' },
+  permSecondaryText: { color: C.shellTextMuted, fontSize: 14, fontWeight: '600' },
 
   // ── Camera phase ──
-  cameraContainer:  { flex: 1, backgroundColor: '#000' },
-  camLoading:       { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' },
-  camLoadingText:   { color: '#fff', marginTop: 12, fontSize: 15 },
+  cameraContainer:  { flex: 1, backgroundColor: C.shell },
+  camLoading:       { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.shell },
+  camLoadingText:   { color: C.shellText, marginTop: 12, fontSize: 15 },
 
   camTopBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingTop: 52, paddingHorizontal: 20, paddingBottom: 12,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: C.shellOverlay,
   },
   camCloseBtn: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: C.shellInputEdge,
     justifyContent: 'center', alignItems: 'center',
   },
-  camCloseText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  camCloseText: { color: C.shellText, fontSize: 18, fontWeight: '700' },
 
   faceGuideWrap:  { flex: 1, justifyContent: 'center', alignItems: 'center' },
   faceOval: {
@@ -444,11 +464,11 @@ const S = StyleSheet.create({
     borderWidth: 2.5, borderStyle: 'dashed',
   },
   faceGuideHint: {
-    color: 'rgba(255,255,255,0.6)', fontSize: 12, marginTop: 16, textAlign: 'center',
+    color: C.shellTextMuted, fontSize: 12, marginTop: 16, textAlign: 'center',
   },
 
   camBottomBar: {
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: C.shellOverlay,
     paddingBottom: 48, paddingTop: 16, paddingHorizontal: 20, alignItems: 'center',
   },
   camLocRow: {
@@ -456,106 +476,106 @@ const S = StyleSheet.create({
     marginBottom: 20, paddingHorizontal: 12, maxWidth: '80%',
   },
   camLocDot:   { fontSize: 14, marginRight: 6 },
-  camLocMuted: { color: 'rgba(255,255,255,0.55)', fontSize: 12 },
-  camLocOk:    { color: 'rgba(255,255,255,0.8)', fontSize: 12, flex: 1 },
+  camLocMuted: { color: C.shellTextMuted, fontSize: 12 },
+  camLocOk:    { color: C.shellText, fontSize: 12, flex: 1 },
   camLocWarn:  { color: C.warn, fontSize: 12 },
 
   shutter: {
     width: 76, height: 76, borderRadius: 38,
     borderWidth: 4, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: C.shellInputEdge,
   },
   shutterInner: { width: 56, height: 56, borderRadius: 28 },
 
   punchBadge:     { paddingHorizontal: 20, paddingVertical: 7, borderRadius: 50 },
-  punchBadgeText: { color: '#fff', fontSize: 13, fontWeight: '800', letterSpacing: 1.5 },
+  punchBadgeText: { color: C.onBrand, fontSize: 13, fontWeight: '800', letterSpacing: 1.5 },
 
   // ── Preview phase ──
   previewImage: { width: '100%', height: '55%', resizeMode: 'cover' },
 
   previewPanel: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: '#111',
+    backgroundColor: C.shellPanel,
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 36,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
   },
 
   previewTime: {
     textAlign: 'center', fontSize: 26, fontWeight: '800',
-    color: '#fff', marginBottom: 14,
+    color: C.shellText, marginBottom: 14,
   },
 
   // ── Location rows in preview ──
   locRow: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: C.shellInput,
     borderRadius: 12, padding: 12, marginBottom: 16,
   },
-  locRowOk: { backgroundColor: 'rgba(60,200,143,0.1)' },
+  locRowOk: { backgroundColor: C.shellOkTint },
   locIcon:         { fontSize: 16, marginRight: 8 },
-  locFetchingText: { color: '#9CA3AF', fontSize: 13 },
-  locOkText:       { flex: 1, color: '#D1D5DB', fontSize: 13, lineHeight: 20 },
+  locFetchingText: { color: C.shellTextMuted, fontSize: 13 },
+  locOkText:       { flex: 1, color: C.shellText, fontSize: 13, lineHeight: 20 },
 
   // ── Location error card ──
   locErrorCard: {
-    backgroundColor: 'rgba(245,158,11,0.1)',
+    backgroundColor: C.shellWarnTint,
     borderRadius: 12, padding: 14, marginBottom: 16,
     borderLeftWidth: 3, borderLeftColor: C.warn,
   },
   locErrorHeader:  { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   locErrorIcon:    { fontSize: 16, marginRight: 8 },
-  locErrorTitle:   { fontSize: 14, fontWeight: '700', color: '#FDE68A', flex: 1 },
-  locErrorBody:    { fontSize: 12, color: '#9CA3AF', lineHeight: 18, marginBottom: 12 },
+  locErrorTitle:   { fontSize: 14, fontWeight: '700', color: C.heroWarnText, flex: 1 },
+  locErrorBody:    { fontSize: 12, color: C.shellTextMuted, lineHeight: 18, marginBottom: 12 },
   locActionBtn: {
-    borderWidth: 1, borderColor: 'rgba(245,158,11,0.5)',
+    borderWidth: 1, borderColor: C.shellWarnEdge,
     borderRadius: 50, paddingVertical: 8, paddingHorizontal: 16,
     alignSelf: 'flex-start', marginBottom: 12,
   },
   locActionText:     { color: C.warn, fontSize: 12, fontWeight: '700' },
-  locExhaustedText:  { fontSize: 11, color: '#6B7280', marginBottom: 12 },
+  locExhaustedText:  { fontSize: 11, color: C.shellTextFaint, marginBottom: 12 },
 
   // ── Force without location toggle ──
   forceRow: {
     flexDirection: 'row', alignItems: 'flex-start',
-    paddingTop: 10, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)',
+    paddingTop: 10, borderTopWidth: 1, borderTopColor: C.shellInputEdge,
   },
   checkbox: {
     width: 20, height: 20, borderRadius: 5,
-    borderWidth: 1.5, borderColor: '#4B5563',
+    borderWidth: 1.5, borderColor: C.shellBorder,
     justifyContent: 'center', alignItems: 'center',
     marginRight: 10, marginTop: 1,
   },
   checkboxOn:  { backgroundColor: C.warn, borderColor: C.warn },
-  checkmark:   { color: '#fff', fontSize: 12, fontWeight: '800' },
-  forceLabel:  { fontSize: 13, color: '#D1D5DB', fontWeight: '600' },
-  forceSub:    { fontSize: 11, color: '#6B7280', marginTop: 2 },
+  checkmark:   { color: C.onBrand, fontSize: 12, fontWeight: '800' },
+  forceLabel:  { fontSize: 13, color: C.shellText, fontWeight: '600' },
+  forceSub:    { fontSize: 11, color: C.shellTextFaint, marginTop: 2 },
 
   // ── Notes block ──
   notesBlock:  { marginBottom: 16 },
-  notesLabel:  { fontSize: 12, fontWeight: '700', color: '#D1D5DB', marginBottom: 6 },
-  notesOptional: { fontSize: 11, fontWeight: '500', color: '#6B7280' },
+  notesLabel:  { fontSize: 12, fontWeight: '700', color: C.shellText, marginBottom: 6 },
+  notesOptional: { fontSize: 11, fontWeight: '500', color: C.shellTextFaint },
   notesInput: {
-    backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: C.shellInput, borderRadius: 12,
+    borderWidth: 1, borderColor: C.shellInputEdge,
     paddingHorizontal: 12, paddingVertical: 10,
-    fontSize: 13, color: '#fff', minHeight: 52,
+    fontSize: 13, color: C.shellText, minHeight: 52,
     textAlignVertical: 'top',
   },
 
   // ── Preview action buttons ──
   previewBtns: { flexDirection: 'row', gap: 10, marginTop: 4 },
   retakeBtn: {
-    flex: 1, borderWidth: 1.5, borderColor: '#374151',
+    flex: 1, borderWidth: 1.5, borderColor: C.shellBorder,
     borderRadius: 50, paddingVertical: 14, alignItems: 'center',
   },
-  retakeBtnText: { color: '#9CA3AF', fontSize: 14, fontWeight: '600' },
+  retakeBtnText: { color: C.shellTextMuted, fontSize: 14, fontWeight: '600' },
   confirmBtn: {
     flex: 2, borderRadius: 50, paddingVertical: 14, alignItems: 'center',
     shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3,
     shadowRadius: 8, elevation: 6,
   },
-  confirmBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  confirmBtnText: { color: C.onBrand, fontSize: 14, fontWeight: '700' },
   btnDisabled:    { opacity: 0.45, elevation: 0, shadowOpacity: 0 },
-});
+}));
 
 export default memo(PunchModal);

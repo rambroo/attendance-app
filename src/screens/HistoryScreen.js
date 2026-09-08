@@ -4,11 +4,10 @@ import {
   ActivityIndicator, RefreshControl,
   TouchableOpacity, StatusBar, Dimensions, Linking,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { C } from '../utils/theme';
+import { C, themed } from '../utils/theme';
 import {
   getMonthAttendance, getMonthCheckins, getDateCheckins,
-  getCachedEmployee, formatHours, formatTime, calcWorkingHours,
+  getCachedEmployee, getSelfieUrls, formatHours, formatTime, calcWorkingHours,
 } from '../api/attendanceApi';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -21,11 +20,11 @@ const DAY_HEADERS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const WEEKDAY_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
 const STATUS_TILE = {
-  Present:    { bg: '#3CC88F', text: '#fff' },
-  Absent:     { bg: '#E53935', text: '#fff' },
-  'Half Day': { bg: '#F59E0B', text: '#fff' },
-  'On Leave': { bg: '#9333EA', text: '#fff' },
-  Holiday:    { bg: '#8B5CF6', text: '#fff' },
+  Present:    { bg: C.in, text: C.onBrand },
+  Absent:     { bg: C.out, text: C.onBrand },
+  'Half Day': { bg: C.warn, text: C.onBrand },
+  'On Leave': { bg: C.leave, text: C.onBrand },
+  Holiday:    { bg: C.holiday, text: C.onBrand },
 };
 
 const toDateKey = (d) =>
@@ -56,12 +55,14 @@ const DayDetailModal = memo(({ visible, date, attendance, onClose }) => {
         const data = await getDateCheckins(emp.name, toDateKey(date));
         setCheckins(data);
 
-        // Selfies are uploaded as public files (is_private=0) so they're
-        // directly accessible by URL — no auth headers needed on Android.
+        // Passing the whole record (not just the name) lets getSelfieUrls fall
+        // back to the stored public path on sites without next_attendance.
         const selfieRecord = data.find(c => c.custom_selfie_image);
-        if (selfieRecord?.custom_selfie_image) {
-          const siteUrl = await AsyncStorage.getItem('siteUrl');
-          setSelfieUri(`${siteUrl}${selfieRecord.custom_selfie_image}`);
+        if (selfieRecord) {
+          const urls = await getSelfieUrls([selfieRecord]);
+          const uri = urls[selfieRecord.name];
+          if (uri) setSelfieUri(uri);
+          else setSelfieError(true);
         }
       } catch (e) {
         console.warn('Day detail fetch error:', e);
@@ -135,12 +136,12 @@ const DayDetailModal = memo(({ visible, date, attendance, onClose }) => {
                     <Text style={[M.badgeText, { color: attTile.text }]}>{attendance.status}</Text>
                   </View>
                 ) : hasCheckin ? (
-                  <View style={[M.badge, { backgroundColor: '#D1FAE5' }]}>
-                    <Text style={[M.badgeText, { color: '#065F46' }]}>Checked In</Text>
+                  <View style={[M.badge, { backgroundColor: C.inLight }]}>
+                    <Text style={[M.badgeText, { color: C.inText }]}>Checked In</Text>
                   </View>
                 ) : (
-                  <View style={[M.badge, { backgroundColor: '#F3F4F6' }]}>
-                    <Text style={[M.badgeText, { color: '#6B7280' }]}>No Record</Text>
+                  <View style={[M.badge, { backgroundColor: C.divider }]}>
+                    <Text style={[M.badgeText, { color: C.neutral }]}>No Record</Text>
                   </View>
                 )}
               </View>
@@ -215,11 +216,11 @@ const DayDetailModal = memo(({ visible, date, attendance, onClose }) => {
                   {geoRecord && (
                     <View style={[
                       M.geoBox,
-                      { backgroundColor: geoRecord.custom_geofence_status === 'Within Range' ? '#ECFDF5' : '#FFEBEE' },
+                      { backgroundColor: geoRecord.custom_geofence_status === 'Within Range' ? C.inLight : C.outLight },
                     ]}>
                       <Text style={[
                         M.geoStatus,
-                        { color: geoRecord.custom_geofence_status === 'Within Range' ? '#065F46' : '#991B1B' },
+                        { color: geoRecord.custom_geofence_status === 'Within Range' ? C.inText : C.errorText },
                       ]}>
                         {geoRecord.custom_geofence_status === 'Within Range' ? '📍 ' : '⚠️ '}
                         {geoRecord.custom_geofence_status}
@@ -290,19 +291,19 @@ const CalendarCell = memo(({ date, attendance, checkins, isToday, onPress }) => 
 
   if (isFuture) {
     // Future dates — dimmed, no status
-    bg = '#E9E9E9'; fg = '#BDBDBD';
+    bg = C.tileIdle; fg = C.tileIdleText;
   } else if (attendance && STATUS_TILE[attendance.status]) {
     // Official attendance record
     const t = STATUS_TILE[attendance.status];
     bg = t.bg; fg = t.text;
-    if (attendance.late_entry) dotColor = '#FDE68A';
+    if (attendance.late_entry) dotColor = C.warn;
   } else if (hasCheckin) {
     // Punched but no official record yet
-    bg = '#D1FAE5'; fg = '#065F46';
-    dotColor = '#3CC88F';
+    bg = C.inLight; fg = C.inText;
+    dotColor = C.in;
   } else {
     // No record and not future → treat as Absent
-    bg = '#FFEBEE'; fg = '#E53935';
+    bg = C.outLight; fg = C.out;
   }
 
   const isTappable = !isFuture && (attendance || hasCheckin);
@@ -485,7 +486,7 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
 
   return (
     <View style={S.container}>
-      <StatusBar barStyle="light-content" backgroundColor={C.primary} />
+      <StatusBar barStyle={C.statusBar} backgroundColor={C.primary} />
 
       <DayDetailModal
         visible={modalOpen}
@@ -526,10 +527,10 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
         {/* Summary bar */}
         <View style={S.summaryBar}>
           {[
-            { label: 'Present',  value: summary.present,  color: '#3CC88F', bg: '#E8F9F3' },
-            { label: 'Absent',   value: summary.absent,   color: '#E53935', bg: '#FFEBEE' },
-            { label: 'Half Day', value: summary.halfDay,  color: '#F59E0B', bg: '#FEF9C3' },
-            { label: 'On Leave', value: summary.onLeave,  color: '#9333EA', bg: '#F3E8FF' },
+            { label: 'Present',  value: summary.present,  color: C.in, bg: C.inLight },
+            { label: 'Absent',   value: summary.absent,   color: C.out, bg: C.outLight },
+            { label: 'Half Day', value: summary.halfDay,  color: C.warn, bg: C.warnLight },
+            { label: 'On Leave', value: summary.onLeave,  color: C.leave, bg: C.leaveLight },
           ].map(({ label, value, color, bg }) => (
             <View key={label} style={[S.summaryItem, { backgroundColor: bg, borderTopColor: color }]}>
               <Text style={[S.summaryVal, { color }]}>{value}</Text>
@@ -582,12 +583,12 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
         {/* Legend */}
         <View style={S.legend}>
           {[
-            { color: '#3CC88F', label: 'Present' },
-            { color: '#E53935', label: 'Absent' },
-            { color: '#F59E0B', label: 'Half Day' },
-            { color: '#9333EA', label: 'On Leave' },
-            { color: '#D1FAE5', label: 'Checked In' },
-            { color: '#E9E9E9', label: 'Upcoming' },
+            { color: C.in, label: 'Present' },
+            { color: C.out, label: 'Absent' },
+            { color: C.warn, label: 'Half Day' },
+            { color: C.leave, label: 'On Leave' },
+            { color: C.inLight, label: 'Checked In' },
+            { color: C.tileIdle, label: 'Upcoming' },
           ].map(({ color, label }) => (
             <View key={label} style={S.legendItem}>
               <View style={[S.legendDot, { backgroundColor: color }]} />
@@ -604,7 +605,7 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
 
 // ── Calendar styles ───────────────────────────────────────────────────────────
 
-const S = StyleSheet.create({
+const S = themed(() => StyleSheet.create({
   container:   { flex: 1, backgroundColor: C.bg },
   centered:    { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
   loadingText: { marginTop: 12, color: C.textMuted, fontSize: 15 },
@@ -614,12 +615,12 @@ const S = StyleSheet.create({
     paddingTop: 50, paddingBottom: 14, paddingHorizontal: 20,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: '#fff' },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: C.heroText },
   offlinePill: {
-    backgroundColor: 'rgba(245,158,11,0.25)',
+    backgroundColor: C.heroWarnChip,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 50,
   },
-  offlineText: { fontSize: 11, color: '#FDE68A', fontWeight: '600' },
+  offlineText: { fontSize: 11, color: C.heroWarnText, fontWeight: '600' },
 
   monthNav: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -646,29 +647,29 @@ const S = StyleSheet.create({
     backgroundColor: C.primary, marginHorizontal: 16, marginTop: 10,
     borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10,
   },
-  hoursLbl: { fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: '500' },
-  hoursVal: { fontSize: 16, fontWeight: '800', color: '#fff' },
+  hoursLbl: { fontSize: 13, color: C.heroTextMuted, fontWeight: '500' },
+  hoursVal: { fontSize: 16, fontWeight: '800', color: C.heroText },
 
   errorBox: {
     backgroundColor: C.errorLight, marginHorizontal: 16, marginTop: 10,
     borderRadius: 12, padding: 12, borderLeftWidth: 3, borderLeftColor: C.out,
   },
-  errorText: { color: '#991B1B', fontSize: 12, fontWeight: '500' },
+  errorText: { color: C.errorText, fontSize: 12, fontWeight: '500' },
 
   calendarWrap: {
     marginHorizontal: 16, marginTop: 14,
     backgroundColor: C.card, borderRadius: 16, overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: C.shadow,
     shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07,
     shadowRadius: 6, elevation: 3,
   },
   dayHeaders: { flexDirection: 'row', backgroundColor: C.primary, paddingVertical: 8 },
   dayHeader:  {
     flex: 1, textAlign: 'center',
-    fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.8)',
+    fontSize: 11, fontWeight: '700', color: C.heroTextMuted,
     textTransform: 'uppercase',
   },
-  sunHeader: { color: '#FCA5A5' },
+  sunHeader: { color: C.heroDanger },
   grid:      { paddingVertical: 4 },
   calRow:    { flexDirection: 'row' },
 
@@ -692,39 +693,39 @@ const S = StyleSheet.create({
 
   legend:     { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: 16, marginTop: 10, gap: 10 },
   legendItem: { flexDirection: 'row', alignItems: 'center' },
-  legendDot:  { width: 11, height: 11, borderRadius: 5, marginRight: 5, borderWidth: 1, borderColor: '#E5E7EB' },
+  legendDot:  { width: 11, height: 11, borderRadius: 5, marginRight: 5, borderWidth: 1, borderColor: C.border },
   legendText: { fontSize: 11, color: C.textMuted },
-});
+}));
 
 // ── Modal styles ──────────────────────────────────────────────────────────────
 
-const M = StyleSheet.create({
+const M = themed(() => StyleSheet.create({
   backdrop: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: C.scrimLight,
   },
   panel: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: '#fff',
+    backgroundColor: C.card,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     maxHeight: '88%',
     paddingBottom: 30,
   },
   handle: {
     width: 40, height: 4, borderRadius: 2,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: C.border,
     alignSelf: 'center', marginTop: 12, marginBottom: 4,
   },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
     paddingHorizontal: 20, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+    borderBottomWidth: 1, borderBottomColor: C.divider,
   },
   dayName:   { fontSize: 13, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase' },
   dateText:  { fontSize: 20, fontWeight: '800', color: C.textPrimary, marginTop: 2 },
   closeBtn:  {
     width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: C.divider,
     justifyContent: 'center', alignItems: 'center',
   },
   closeText: { fontSize: 16, color: C.textMuted, fontWeight: '700' },
@@ -745,10 +746,10 @@ const M = StyleSheet.create({
   },
   selfie: {
     width: '100%', height: 220,
-    borderRadius: 14, backgroundColor: '#F3F4F6',
+    borderRadius: 14, backgroundColor: C.divider,
   },
   noSelfieBox: {
-    backgroundColor: '#F9FAFB', borderRadius: 12, padding: 20,
+    backgroundColor: C.cardAlt, borderRadius: 12, padding: 20,
     alignItems: 'center', marginBottom: 16,
   },
   noSelfieText: { color: C.textMuted, fontSize: 13 },
@@ -777,24 +778,24 @@ const M = StyleSheet.create({
 
   mapBtn: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#EFF6FF', borderRadius: 12, padding: 14,
-    borderWidth: 1, borderColor: '#BFDBFE',
+    backgroundColor: C.infoLight, borderRadius: 12, padding: 14,
+    borderWidth: 1, borderColor: C.infoBorder,
   },
   mapBtnIcon:  { fontSize: 22, marginRight: 12 },
-  mapBtnLabel: { fontSize: 14, fontWeight: '700', color: '#1D4ED8' },
-  mapCoords:   { fontSize: 11, color: '#3B82F6', marginTop: 2 },
-  mapArrow:    { marginLeft: 'auto', fontSize: 22, color: '#3B82F6', fontWeight: '300' },
+  mapBtnLabel: { fontSize: 14, fontWeight: '700', color: C.infoText },
+  mapCoords:   { fontSize: 11, color: C.info, marginTop: 2 },
+  mapArrow:    { marginLeft: 'auto', fontSize: 22, color: C.info, fontWeight: '300' },
 
   flagsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   flagBox:  {
     backgroundColor: C.warnLight, borderRadius: 8,
     paddingHorizontal: 10, paddingVertical: 5,
   },
-  flagText: { fontSize: 12, color: '#854D0E', fontWeight: '600' },
+  flagText: { fontSize: 12, color: C.warnText, fontWeight: '600' },
 
   emptyDay:  { alignItems: 'center', paddingVertical: 30 },
   emptyIcon: { fontSize: 36, marginBottom: 8 },
   emptyText: { fontSize: 14, color: C.textMuted },
-});
+}));
 
 export default HistoryScreen;

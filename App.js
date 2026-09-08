@@ -20,7 +20,8 @@ import KioskScreen from './src/screens/KioskScreen';
 import SiteSetupScreen from './src/screens/SiteSetupScreen';
 import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from './src/api/authApi';
 import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
-import { C } from './src/utils/theme';
+import { resetServerCaps } from './src/utils/serverCaps';
+import { C, themed, useThemeName, loadSavedTheme } from './src/utils/theme';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -48,7 +49,7 @@ function MainTabs({ loginKey, handleLogout, handleSessionExpired }) {
         headerShown: false,
         tabBarStyle: [styles.tabBar, { height: 54 + navBarPad, paddingBottom: navBarPad }],
         tabBarActiveTintColor: C.brand,
-        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarInactiveTintColor: C.textMuted,
         tabBarLabelStyle: styles.tabLabel,
         tabBarIcon: ({ focused }) => (
           <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>
@@ -118,6 +119,11 @@ class ErrorBoundary extends React.Component {
 }
 
 function Root() {
+  // Stylesheets are refilled in place on a theme change (see utils/theme.js),
+  // but memoised subtrees would keep their old rendered output. Keying the
+  // whole tree on the theme name remounts everything, which is cheap for an
+  // action this rare and guarantees nothing is left half-restyled.
+  const themeName = useThemeName();
   const [appReady,  setAppReady]  = useState(false);
   const [siteReady, setSiteReady] = useState(false);
   const [kioskMode, setKioskMode] = useState(false);
@@ -127,19 +133,25 @@ function Root() {
   useEffect(() => {
     const init = async () => {
       try {
+        // Restore the theme before anything paints, so a Midnight/Onyx user
+        // never sees a frame of the light theme while the splash lifts.
         const [siteOk, kioskOk, authOk] = await Promise.all([
           isSiteConfigured(),
           isKioskMode(),
           isAuthenticated(),
+          loadSavedTheme(),
         ]);
         setSiteReady(siteOk);
         setKioskMode(kioskOk);
 
         if (!kioskOk && authOk && siteOk) {
+          // Cold start is offline-safe: no network call here. If the server-side
+          // session has lapsed, the first API call reports it and we recover
+          // through handleSessionExpired below.
           setLoggedIn(true);
         } else if (!kioskOk && siteOk && !authOk) {
-          const reLoggedIn = await silentReLogin();
-          setLoggedIn(reLoggedIn);
+          const { ok } = await silentReLogin();
+          setLoggedIn(ok);
         }
       } catch (e) {
         console.warn('Init error:', e);
@@ -187,6 +199,8 @@ function Root() {
           text: 'Change Site',
           style: 'destructive',
           onPress: async () => {
+            // Caps are keyed on siteUrl, so drop them before it is cleared.
+            await resetServerCaps();
             await Promise.all([
               clearSiteConfig(),
               AsyncStorage.multiRemove(AUTH_KEYS),
@@ -206,13 +220,16 @@ function Root() {
   }, []);
 
   // Called when an API response signals the session expired.
-  // Tries silent re-login first; only falls back to login screen if that fails.
+  // Tries silent re-login first; only falls back to the login screen when the
+  // credentials themselves are gone or rejected. A network failure here is NOT
+  // a logout — the user keeps their session and their cached data, and the next
+  // request retries. This is what stopped users being bounced to login on a
+  // weak connection.
   const handleSessionExpired = useCallback(async () => {
-    const reLoggedIn = await silentReLogin();
-    if (!reLoggedIn) {
+    const { ok, reason } = await silentReLogin();
+    if (!ok && reason !== 'network') {
       setLoggedIn(false);
     }
-    // If reLoggedIn is true, the user stays on the current screen — they won't notice anything.
   }, []);
 
   const handleSwitchToKiosk = useCallback(() => {
@@ -245,7 +262,7 @@ function Root() {
   // ── Site setup ──
   if (!siteReady) {
     return (
-      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <View key={themeName} style={{ flex: 1 }} onLayout={onLayoutRootView}>
         <SiteSetupScreen onSiteConfigured={handleSiteConfigured} />
       </View>
     );
@@ -254,7 +271,7 @@ function Root() {
   // ── Kiosk mode ──
   if (kioskMode) {
     return (
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView key={themeName} style={{ flex: 1 }}>
         <SafeAreaProvider>
           <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
             <KioskScreen onExitKiosk={handleExitKiosk} />
@@ -267,7 +284,7 @@ function Root() {
   // ── Login ──
   if (!loggedIn) {
     return (
-      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <View key={themeName} style={{ flex: 1 }} onLayout={onLayoutRootView}>
         <LoginScreen
           onLoginSuccess={handleLoginSuccess}
           onChangeSite={handleChangeSite}
@@ -279,7 +296,7 @@ function Root() {
 
   // ── Main App ──
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView key={themeName} style={{ flex: 1 }}>
       <SafeAreaProvider>
         <NavigationContainer onReady={onLayoutRootView}>
           <MainTabs
@@ -301,7 +318,7 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   splash: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
   errorRoot: {
     flex: 1, justifyContent: 'center', alignItems: 'center',
@@ -314,16 +331,16 @@ const styles = StyleSheet.create({
     backgroundColor: C.brand, borderRadius: 50,
     paddingVertical: 14, paddingHorizontal: 48,
   },
-  errorBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  errorBtnText: { color: C.onBrand, fontSize: 15, fontWeight: '700' },
   tabBar: {
     // height + paddingBottom are set dynamically in MainTabs using safe-area
     // insets, so the bar never gets covered by an Android 3-button nav bar.
-    backgroundColor: '#fff',
+    backgroundColor: C.card,
     borderTopColor: C.border,
     borderTopWidth: 1,
     paddingTop: 6,
     elevation: 10,
-    shadowColor: '#000',
+    shadowColor: C.shadow,
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
@@ -331,4 +348,4 @@ const styles = StyleSheet.create({
   tabLabel:     { fontSize: 11, fontWeight: '600' },
   tabIcon:      { fontSize: 20 },
   tabIconActive: { transform: [{ scale: 1.1 }] },
-});
+}));

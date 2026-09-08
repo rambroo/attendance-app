@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { C } from '../utils/theme';
+import { C, themed } from '../utils/theme';
 import {
   getLeaveTypes, getLeaveBalances, getLeaveApplications,
   applyLeave, getHolidaysForEmployee,
@@ -110,9 +110,9 @@ const DatePickerModal = memo(({ visible, title, selectedDate, onSelect, onClose 
   );
 });
 
-const dp = StyleSheet.create({
-  overlay:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  box:         { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: SCREEN_W - 48 },
+const dp = themed(() => StyleSheet.create({
+  overlay:     { flex: 1, backgroundColor: C.scrimLight, justifyContent: 'center', alignItems: 'center' },
+  box:         { backgroundColor: C.elevated, borderRadius: 16, padding: 20, width: SCREEN_W - 48 },
   title:       { fontSize: 16, fontWeight: '700', color: C.textPrimary, textAlign: 'center', marginBottom: 12 },
   navRow:      { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   navBtn:      { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
@@ -124,10 +124,10 @@ const dp = StyleSheet.create({
   cell:        { flex: 1, aspectRatio: 1, justifyContent: 'center', alignItems: 'center', borderRadius: 8, margin: 1 },
   cellSel:     { backgroundColor: C.brand },
   cellText:    { fontSize: 14, color: C.textPrimary },
-  cellTextSel: { color: '#fff', fontWeight: '700' },
+  cellTextSel: { color: C.onBrand, fontWeight: '700' },
   cancelBtn:   { marginTop: 14, alignItems: 'center', paddingVertical: 10 },
   cancelText:  { color: C.textSecond, fontSize: 14 },
-});
+}));
 
 // ── Leave Type Picker ─────────────────────────────────────────────────────────
 
@@ -154,16 +154,16 @@ const LeaveTypePicker = memo(({ visible, leaveTypes, onSelect, onClose }) => (
   </Modal>
 ));
 
-const ltp = StyleSheet.create({
-  overlay:    { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet:      { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%', padding: 20 },
+const ltp = themed(() => StyleSheet.create({
+  overlay:    { flex: 1, backgroundColor: C.scrimLight, justifyContent: 'flex-end' },
+  sheet:      { backgroundColor: C.elevated, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%', padding: 20 },
   title:      { fontSize: 16, fontWeight: '700', color: C.textPrimary, marginBottom: 12 },
   row:        { paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   name:       { fontSize: 15, color: C.textPrimary },
   max:        { fontSize: 12, color: C.textMuted },
   cancel:     { marginTop: 14, alignItems: 'center', paddingVertical: 12, backgroundColor: C.bg, borderRadius: 10 },
   cancelText: { color: C.textSecond, fontSize: 14, fontWeight: '600' },
-});
+}));
 
 // ── Balance Tab ───────────────────────────────────────────────────────────────
 
@@ -307,7 +307,7 @@ const ApplyTab = memo(({ employeeId, onSessionExpired, onApplied }) => {
           value={halfDay}
           onValueChange={(v) => { setHalfDay(v); if (v) setToDate(fromDate); }}
           trackColor={{ false: C.border, true: C.brand }}
-          thumbColor="#fff"
+          thumbColor={C.card}
         />
       </View>
 
@@ -326,7 +326,7 @@ const ApplyTab = memo(({ employeeId, onSessionExpired, onApplied }) => {
 
       <TouchableOpacity style={[s.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
         {submitting
-          ? <ActivityIndicator color="#fff" />
+          ? <ActivityIndicator color={C.onBrand} />
           : <Text style={s.submitText}>Submit Application</Text>
         }
       </TouchableOpacity>
@@ -538,17 +538,17 @@ export default function LeavesScreen({ onLogout, onSessionExpired }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => StyleSheet.create({
   root:      { flex: 1, backgroundColor: C.bg },
 
   // Header
   header:    { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: '#fff' },
-  logoutBtn:  { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 8 },
-  logoutText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: C.heroText },
+  logoutBtn:  { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.heroChip, borderRadius: 8 },
+  logoutText: { color: C.heroText, fontSize: 13, fontWeight: '600' },
 
   // Tab Bar
-  tabBar:         { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: C.border },
+  tabBar:         { flexDirection: 'row', backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.border },
   tabBtn:         { flex: 1, paddingVertical: 12, alignItems: 'center' },
   tabBtnActive:   { borderBottomWidth: 2, borderBottomColor: C.brand },
   tabLabel:       { fontSize: 13, color: C.textMuted, fontWeight: '500' },
@@ -556,7 +556,7 @@ const s = StyleSheet.create({
 
   // Balance
   balanceGrid:  { padding: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  balCard:      { backgroundColor: '#fff', borderRadius: 14, padding: 16, width: (SCREEN_W - 44) / 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  balCard:      { backgroundColor: C.card, borderRadius: 14, padding: 16, width: (SCREEN_W - 44) / 2, shadowColor: C.shadow, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   balType:      { fontSize: 13, color: C.textSecond, fontWeight: '600', marginBottom: 6 },
   balRow:       { flexDirection: 'row', alignItems: 'baseline', marginBottom: 8 },
   balRemain:    { fontSize: 26, fontWeight: '800', color: C.brand },
@@ -571,19 +571,19 @@ const s = StyleSheet.create({
   applyScroll:   { flex: 1 },
   applyContent:  { padding: 16, paddingBottom: 40 },
   fieldLabel:    { fontSize: 13, fontWeight: '600', color: C.textSecond, marginBottom: 6, marginTop: 14 },
-  selectBtn:     { backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 13, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  selectBtn:     { backgroundColor: C.card, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 13, borderWidth: 1, borderColor: C.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   selectVal:     { fontSize: 15, color: C.textPrimary },
   selectPlaceholder: { fontSize: 15, color: C.textMuted },
   selectArrow:   { fontSize: 18, color: C.textMuted },
   dateRow:       { flexDirection: 'row' },
-  switchRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginTop: 14, borderWidth: 1, borderColor: C.border },
+  switchRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.card, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginTop: 14, borderWidth: 1, borderColor: C.border },
   switchLabel:   { fontSize: 15, color: C.textPrimary, fontWeight: '500' },
-  textArea:      { backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: C.border, fontSize: 15, color: C.textPrimary, minHeight: 90 },
+  textArea:      { backgroundColor: C.card, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1, borderColor: C.border, fontSize: 15, color: C.textPrimary, minHeight: 90 },
   submitBtn:     { backgroundColor: C.brand, borderRadius: 12, paddingVertical: 15, alignItems: 'center', marginTop: 24 },
-  submitText:    { color: '#fff', fontSize: 16, fontWeight: '700' },
+  submitText:    { color: C.onBrand, fontSize: 16, fontWeight: '700' },
 
   // History
-  leaveRow:     { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: 'row', alignItems: 'flex-start', elevation: 1 },
+  leaveRow:     { backgroundColor: C.card, borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: 'row', alignItems: 'flex-start', elevation: 1 },
   leaveMain:    { flex: 1 },
   leaveType:    { fontSize: 15, fontWeight: '700', color: C.textPrimary, marginBottom: 3 },
   leaveDates:   { fontSize: 13, color: C.textSecond, marginBottom: 2 },
@@ -595,7 +595,7 @@ const s = StyleSheet.create({
 
   // Holidays
   yearHeader:    { fontSize: 16, fontWeight: '700', color: C.textPrimary, marginBottom: 12 },
-  holidayRow:    { backgroundColor: '#fff', borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: 'row', alignItems: 'center', elevation: 1 },
+  holidayRow:    { backgroundColor: C.card, borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: 'row', alignItems: 'center', elevation: 1 },
   holidayDateBox: { width: 48, alignItems: 'center', marginRight: 12 },
   holidayDay:    { fontSize: 20, fontWeight: '800', color: C.brand },
   holidayMon:    { fontSize: 12, color: C.textMuted, fontWeight: '600' },
@@ -609,4 +609,4 @@ const s = StyleSheet.create({
   empty:      { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
   emptyIcon:  { fontSize: 48, marginBottom: 12 },
   emptyText:  { fontSize: 15, color: C.textMuted, textAlign: 'center' },
-});
+}));

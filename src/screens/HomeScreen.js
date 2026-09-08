@@ -1,24 +1,33 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Alert,
-  RefreshControl, StatusBar, Animated,
+  RefreshControl, StatusBar, Animated, AppState,
 } from 'react-native';
-import { C } from '../utils/theme';
+import { C, themed } from '../utils/theme';
 import {
   getEmployeeByEmail,
   getCachedEmployee,
   getCachedTodayCheckins,
   getTodayCheckins,
-  createCheckin,
   getNextPunchType,
   calcWorkingHours,
   formatHours,
   formatDate,
+  formatDateTime,
   formatTime,
 } from '../api/attendanceApi';
+import {
+  enqueuePunch, flushQueue, getPendingFor, getFailedFor, clearFailedFor,
+} from '../utils/punchQueue';
 import { getStoredUser } from '../api/authApi';
 import PunchModal from '../components/PunchModal';
+import ThemePicker from '../components/ThemePicker';
+
+// How often to retry a stuck queue while the screen is open. The app has no
+// connectivity listener (adding one would mean a new native module and a store
+// release), so we poll gently and also flush whenever the app is foregrounded.
+const RETRY_INTERVAL_MS = 20000;
 
 // ─── Live Clock — isolated so the 1s tick doesn't re-render HomeScreen ────────
 const LiveClock = memo(() => {
@@ -46,12 +55,12 @@ const LiveClock = memo(() => {
   );
 });
 
-const clockS = StyleSheet.create({
+const clockS = themed(() => StyleSheet.create({
   wrap: { alignItems: 'center', paddingBottom: 4 },
-  date: { fontSize: 12, color: 'rgba(255,255,255,0.65)', fontWeight: '500', marginBottom: 4 },
-  time: { fontSize: 48, fontWeight: '800', color: '#fff', letterSpacing: 1, lineHeight: 56 },
-  sec:  { fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
-});
+  date: { fontSize: 12, color: C.heroTextMuted, fontWeight: '500', marginBottom: 4 },
+  time: { fontSize: 48, fontWeight: '800', color: C.heroText, letterSpacing: 1, lineHeight: 56 },
+  sec:  { fontSize: 13, color: C.heroTextFaint, marginTop: 2 },
+}));
 
 // ─── Power Icon ───────────────────────────────────────────────────────────────
 const PowerIcon = memo(({ color }) => (
@@ -61,14 +70,14 @@ const PowerIcon = memo(({ color }) => (
   </View>
 ));
 
-const powerS = StyleSheet.create({
+const powerS = themed(() => StyleSheet.create({
   container: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
   ring: {
     position: 'absolute', width: 36, height: 36, borderRadius: 18,
     borderWidth: 4, borderTopColor: 'transparent', transform: [{ rotate: '45deg' }],
   },
   stem: { position: 'absolute', top: 1, width: 5, height: 16, borderRadius: 3 },
-});
+}));
 
 // ─── Punch Button — memoized, has its own animation refs ─────────────────────
 const PunchButton = memo(({ isPunchIn, onPress, disabled }) => {
@@ -108,10 +117,10 @@ const PunchButton = memo(({ isPunchIn, onPress, disabled }) => {
         activeOpacity={0.82}
       >
         {disabled ? (
-          <ActivityIndicator color="#fff" size="large" />
+          <ActivityIndicator color={C.onBrand} size="large" />
         ) : (
           <>
-            <PowerIcon color="#fff" />
+            <PowerIcon color={C.onBrand} />
             <Text style={styles.punchLabel}>{isPunchIn ? 'PUNCH IN' : 'PUNCH OUT'}</Text>
           </>
         )}
@@ -127,12 +136,17 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
   const [employee, setEmployee]         = useState(null);
   const [checkins, setCheckins]         = useState([]);
   const [loading, setLoading]           = useState(true);
-  const [punching, setPunching]         = useState(false);
   const [refreshing, setRefreshing]     = useState(false);
   const [error, setError]               = useState('');
   const [lastMsg, setLastMsg]           = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [isOffline, setIsOffline]       = useState(false);
+  const [pending, setPending]           = useState([]);   // punches awaiting sync
+  const [themesOpen, setThemesOpen]     = useState(false);
+
+  // Mirrors the merged checkin list so callbacks can read it without going
+  // stale, the same reason employeeRef exists.
+  const mergedRef = useRef([]);
 
   const saveEmployee = useCallback((emp) => {
     employeeRef.current = emp;
@@ -183,12 +197,77 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
     }
   }, [saveEmployee, handleSessionExpired]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Offline punch queue ─────────────────────────────────────────────────────
+
+  // Pull the queue into state, and tell the user about anything the server
+  // refused outright (geofence, validation) — those never retry on their own.
+  const refreshPending = useCallback(async () => {
+    const emp = employeeRef.current;
+    if (!emp) return;
+    const [queued, rejected] = await Promise.all([
+      getPendingFor(emp.name),
+      getFailedFor(emp.name),
+    ]);
+    setPending(queued);
+
+    if (rejected.length) {
+      const body = rejected
+        .map((p) => `${p.logType} at ${formatTime(p.time)}\n${p.lastError}`)
+        .join('\n\n');
+      Alert.alert(
+        rejected.length > 1 ? 'Some punches were not recorded' : 'Punch not recorded',
+        body,
+        [{
+          text: 'OK',
+          onPress: async () => {
+            await clearFailedFor(emp.name);
+            setPending(await getPendingFor(emp.name));
+          },
+        }],
+      );
+    }
+  }, []);
+
+  // Drain the queue, then reconcile with the server if anything landed.
+  const syncNow = useCallback(async () => {
+    const emp = employeeRef.current;
+    if (!emp) return;
+    const result = await flushQueue();
+    if (result.skipped) return;           // another flush was already running
+    await refreshPending();
+    if (result.sent > 0) loadData(false); // pull the authoritative records
+  }, [refreshPending, loadData]);
+
   useEffect(() => { loadData(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Try to sync once the employee is known, whenever the app returns to the
+  // foreground, and periodically while anything is still waiting.
+  //
+  // Keyed on the employee id rather than mount: syncNow() needs employeeRef,
+  // which loadData fills in asynchronously. Firing on mount alone would skip
+  // the flush on every cold start — exactly when a queue left over from
+  // yesterday's dead zone needs draining.
+  const employeeId = employee?.name;
+  useEffect(() => {
+    if (!employeeId) return undefined;
+    syncNow();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') syncNow();
+    });
+    return () => sub.remove();
+  }, [employeeId, syncNow]);
+
+  useEffect(() => {
+    if (pending.length === 0) return undefined;
+    const id = setInterval(syncNow, RETRY_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [pending.length, syncNow]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
+    syncNow();
     loadData(false);
-  }, [loadData]);
+  }, [loadData, syncNow]);
 
   const handleOpenModal = useCallback(() => {
     if (!employeeRef.current) return;
@@ -196,27 +275,37 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
   }, []);
 
   const handleCloseModal = useCallback(() => setModalVisible(false), []);
+  const handleOpenThemes  = useCallback(() => setThemesOpen(true), []);
+  const handleCloseThemes = useCallback(() => setThemesOpen(false), []);
 
+  // Record the punch locally and return control to the user immediately. The
+  // upload and the server call happen afterwards, in the background, with
+  // retries — so a slow or absent connection no longer holds up the UI.
   const handleModalConfirm = useCallback(async ({ photo, location, notes }) => {
-    const emp     = employeeRef.current;
-    const logType = getNextPunchType(checkins);
-    setPunching(true);
+    const emp = employeeRef.current;
+    if (!emp) return;
+
+    const logType = getNextPunchType(mergedRef.current);
+    const now     = new Date();
+
+    setModalVisible(false);   // close first — nothing below needs the network
     setLastMsg('');
-    try {
-      await createCheckin(emp.name, logType, { photo, location, notes });
-      setModalVisible(false);
-      const logs = await getTodayCheckins(emp.name, formatDate(new Date()));
-      setCheckins(logs);
-      const t = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-      setLastMsg(logType === 'IN' ? `Checked In at ${t}` : `Checked Out at ${t}`);
-    } catch (err) {
-      setModalVisible(false);
-      if (err.sessionExpired) { handleSessionExpired(); return; }
-      Alert.alert('Punch Failed', err.message || 'Could not record attendance.');
-    } finally {
-      setPunching(false);
-    }
-  }, [checkins, handleSessionExpired]);
+
+    await enqueuePunch({
+      employeeId: emp.name,
+      logType,
+      time:       formatDateTime(now),
+      photoUri:   photo?.uri || null,
+      location,
+      notes,
+    });
+    setPending(await getPendingFor(emp.name));
+
+    const t = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+    setLastMsg(logType === 'IN' ? `Checked In at ${t}` : `Checked Out at ${t}`);
+
+    syncNow();   // deliberately not awaited
+  }, [syncNow]);
 
   const getGreeting = useCallback(() => {
     const h = new Date().getHours();
@@ -234,23 +323,52 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
     );
   }
 
-  const nextType      = getNextPunchType(checkins);
-  const isPunchIn     = nextType === 'IN';
-  const isCurrentlyIn = checkins.length > 0 && checkins[checkins.length - 1].log_type === 'IN';
-  const hoursWorked   = calcWorkingHours(checkins);
-  const firstIn       = checkins.find((c) => c.log_type === 'IN');
-  const lastOut       = [...checkins].reverse().find((c) => c.log_type === 'OUT');
+  // Queued punches are shown alongside confirmed ones and count towards every
+  // derived value. Without this, tapping "Punch In" offline would leave the
+  // button still reading "Punch In" and today's hours unchanged, which reads as
+  // the punch having been lost.
+  // Derived once per data change rather than per render. Every parent re-render
+  // (offline flag, sync badge, opening a sheet) used to redo the spread, the
+  // sort, the hours calculation and two scans over the list.
+  const { merged, reversed, nextType, isCurrentlyIn, hoursWorked, firstIn, lastOut } =
+    useMemo(() => {
+      const all = [
+        ...checkins,
+        ...pending.map((p) => ({
+          name:     p.id,
+          log_type: p.logType,
+          time:     p.time,
+          _pending: true,
+        })),
+      ].sort((a, b) => new Date(a.time) - new Date(b.time));
+
+      const rev = [...all].reverse();
+      return {
+        merged:        all,
+        reversed:      rev,                       // the log list renders newest-first
+        nextType:      getNextPunchType(all),
+        isCurrentlyIn: all.length > 0 && all[all.length - 1].log_type === 'IN',
+        hoursWorked:   calcWorkingHours(all),
+        firstIn:       all.find((c) => c.log_type === 'IN'),
+        lastOut:       rev.find((c) => c.log_type === 'OUT'),
+      };
+    }, [checkins, pending]);
+
+  mergedRef.current = merged;
+  const isPunchIn = nextType === 'IN';
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={C.primary} />
+      <StatusBar barStyle={C.statusBar} backgroundColor={C.primary} />
+
+      <ThemePicker visible={themesOpen} onClose={handleCloseThemes} />
 
       <PunchModal
         visible={modalVisible}
         logType={nextType}
         onConfirm={handleModalConfirm}
         onCancel={handleCloseModal}
-        punching={punching}
+        punching={false}
       />
 
       {/* ── Header ── */}
@@ -269,9 +387,20 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
               : null}
           </View>
         </View>
-        <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.75}>
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        <View style={styles.topBarActions}>
+          <TouchableOpacity
+            style={styles.themeBtn}
+            onPress={handleOpenThemes}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Change appearance"
+          >
+            <Text style={styles.themeIcon}>◐</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.75}>
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -291,17 +420,29 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
             </View>
           )}
 
+          {/* Reassurance that a queued punch is recorded, not lost. */}
+          {pending.length > 0 && (
+            <View style={styles.syncBadge}>
+              <ActivityIndicator size="small" color={C.heroInfoText} style={{ marginRight: 6 }} />
+              <Text style={styles.syncBadgeText}>
+                {pending.length === 1
+                  ? 'Punch saved · syncing…'
+                  : `${pending.length} punches saved · syncing…`}
+              </Text>
+            </View>
+          )}
+
           {/* Status chip */}
           <View style={[styles.statusChip,
             isCurrentlyIn ? styles.statusChipIn : styles.statusChipOut]}>
             <View style={[styles.statusDot, {
               backgroundColor: isCurrentlyIn ? C.in
-                : checkins.length > 0 ? '#6B7280' : C.warn,
+                : merged.length > 0 ? C.neutral : C.warn,
             }]} />
             <Text style={styles.statusChipText}>
               {isCurrentlyIn
                 ? 'Currently Checked In'
-                : checkins.length > 0
+                : merged.length > 0
                   ? 'Checked Out'
                   : 'Not Checked In Today'}
             </Text>
@@ -323,7 +464,7 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
             </Text>
           ) : null}
 
-          <PunchButton isPunchIn={isPunchIn} onPress={handleOpenModal} disabled={punching} />
+          <PunchButton isPunchIn={isPunchIn} onPress={handleOpenModal} disabled={false} />
 
           <Text style={styles.punchHint}>
             {isPunchIn ? 'Tap to record your Check-In' : 'Tap to record your Check-Out'}
@@ -353,28 +494,30 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
           <View style={styles.logCardHeader}>
             <Text style={styles.logCardTitle}>Today's Punches</Text>
             <View style={styles.logCount}>
-              <Text style={styles.logCountText}>{checkins.length}</Text>
+              <Text style={styles.logCountText}>{merged.length}</Text>
             </View>
           </View>
 
-          {checkins.length === 0 ? (
+          {merged.length === 0 ? (
             <View style={styles.emptyLog}>
               <Text style={styles.emptyLogIcon}>🕐</Text>
               <Text style={styles.emptyLogText}>No punches recorded yet today</Text>
             </View>
           ) : (
             <View>
-              {[...checkins].reverse().map((log, idx) => (
+              {reversed.map((log, idx) => (
                 <View key={log.name} style={[
                   styles.logRow,
-                  idx < checkins.length - 1 && styles.logRowBorder,
+                  idx < merged.length - 1 && styles.logRowBorder,
                 ]}>
                   <View style={[styles.logDot, {
                     backgroundColor: log.log_type === 'IN' ? C.in : C.out,
                   }]} />
                   <View style={styles.logRowInfo}>
                     <Text style={styles.logRowTime}>{formatTime(log.time)}</Text>
-                    {log.shift ? <Text style={styles.logRowShift}>{log.shift}</Text> : null}
+                    {log._pending
+                      ? <Text style={styles.logRowPending}>Waiting to sync</Text>
+                      : log.shift ? <Text style={styles.logRowShift}>{log.shift}</Text> : null}
                   </View>
                   <View style={[
                     styles.logTypeBadge,
@@ -408,7 +551,7 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   container:   { flex: 1, backgroundColor: C.bg },
   centered:    { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
   loadingText: { marginTop: 12, fontSize: 15, color: C.textMuted },
@@ -423,19 +566,26 @@ const styles = StyleSheet.create({
   topBarLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   avatarCircle: {
     width: 42, height: 42, borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: C.heroAvatar,
     justifyContent: 'center', alignItems: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.45)',
+    borderWidth: 2, borderColor: C.heroBorder,
   },
-  avatarText:   { fontSize: 18, fontWeight: '700', color: '#fff' },
-  greetingText: { fontSize: 11, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
-  nameText:     { fontSize: 16, fontWeight: '700', color: '#fff', marginTop: 1 },
-  designText:   { fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 1 },
+  avatarText:   { fontSize: 18, fontWeight: '700', color: C.heroText },
+  greetingText: { fontSize: 11, color: C.heroTextMuted, fontWeight: '500' },
+  nameText:     { fontSize: 16, fontWeight: '700', color: C.heroText, marginTop: 1 },
+  designText:   { fontSize: 11, color: C.heroTextMuted, marginTop: 1 },
+  topBarActions: { flexDirection: 'row', alignItems: 'center' },
+  themeBtn: {
+    width: 32, height: 32, borderRadius: 16, marginRight: 8,
+    borderWidth: 1, borderColor: C.heroBorder,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  themeIcon: { color: C.heroText, fontSize: 15, lineHeight: 18 },
   logoutBtn: {
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)',
+    borderWidth: 1, borderColor: C.heroBorder,
     paddingHorizontal: 16, paddingVertical: 7, borderRadius: 50,
   },
-  logoutText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  logoutText: { color: C.heroText, fontSize: 12, fontWeight: '600' },
 
   // ── Clock Card ──
   clockCard: {
@@ -444,20 +594,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   offlineBadge: {
-    backgroundColor: 'rgba(245,158,11,0.22)',
+    backgroundColor: C.heroWarnChip,
     paddingHorizontal: 12, paddingVertical: 4,
     borderRadius: 20, marginTop: 8, marginBottom: 4,
   },
-  offlineBadgeText: { fontSize: 11, color: '#FDE68A', fontWeight: '600' },
+  offlineBadgeText: { fontSize: 11, color: C.heroWarnText, fontWeight: '600' },
+  syncBadge: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.heroInfoChip,
+    paddingHorizontal: 12, paddingVertical: 4,
+    borderRadius: 20, marginTop: 8, marginBottom: 4,
+  },
+  syncBadgeText: { fontSize: 11, color: C.heroInfoText, fontWeight: '600' },
   statusChip: {
     flexDirection: 'row', alignItems: 'center',
     marginTop: 12, paddingHorizontal: 14, paddingVertical: 6,
     borderRadius: 50,
   },
-  statusChipIn:  { backgroundColor: 'rgba(60,200,143,0.2)' },
-  statusChipOut: { backgroundColor: 'rgba(255,255,255,0.12)' },
+  statusChipIn:  { backgroundColor: C.heroChipOn },
+  statusChipOut: { backgroundColor: C.heroChip },
   statusDot:     { width: 8, height: 8, borderRadius: 4, marginRight: 7 },
-  statusChipText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  statusChipText: { fontSize: 12, fontWeight: '600', color: C.heroText },
 
   // ── Error ──
   errorBox: {
@@ -465,7 +622,7 @@ const styles = StyleSheet.create({
     borderRadius: 12, padding: 12,
     borderLeftWidth: 3, borderLeftColor: C.out,
   },
-  errorText: { color: '#991B1B', fontSize: 12, fontWeight: '500' },
+  errorText: { color: C.errorText, fontSize: 12, fontWeight: '500' },
 
   // ── Punch Section ──
   punchSection: {
@@ -496,14 +653,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3, shadowRadius: 16, elevation: 10,
   },
-  punchLabel: { fontSize: 13, fontWeight: '800', color: '#fff', letterSpacing: 1.5 },
+  punchLabel: { fontSize: 13, fontWeight: '800', color: C.onBrand, letterSpacing: 1.5 },
 
   // ── Stats Row ──
   statsRow: {
     flexDirection: 'row', backgroundColor: C.card,
     marginHorizontal: 16, marginTop: 14,
     borderRadius: 16, paddingVertical: 16, paddingHorizontal: 8,
-    shadowColor: '#000',
+    shadowColor: C.shadow,
     shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05,
     shadowRadius: 4, elevation: 2,
   },
@@ -516,7 +673,7 @@ const styles = StyleSheet.create({
   logCard: {
     backgroundColor: C.card, marginHorizontal: 16, marginTop: 14,
     borderRadius: 16, padding: 16,
-    shadowColor: '#000',
+    shadowColor: C.shadow,
     shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05,
     shadowRadius: 4, elevation: 2,
   },
@@ -529,16 +686,17 @@ const styles = StyleSheet.create({
     backgroundColor: C.brand, width: 24, height: 24,
     borderRadius: 12, justifyContent: 'center', alignItems: 'center',
   },
-  logCountText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  logCountText: { fontSize: 11, fontWeight: '700', color: C.onBrand },
   emptyLog:     { paddingVertical: 24, alignItems: 'center' },
   emptyLogIcon: { fontSize: 28, marginBottom: 8 },
   emptyLogText: { fontSize: 13, color: C.textMuted },
   logRow:       { flexDirection: 'row', alignItems: 'center', paddingVertical: 11 },
-  logRowBorder: { borderBottomWidth: 1, borderBottomColor: '#F3F4F6' },
+  logRowBorder: { borderBottomWidth: 1, borderBottomColor: C.divider },
   logDot:       { width: 10, height: 10, borderRadius: 5, marginRight: 12 },
   logRowInfo:   { flex: 1 },
   logRowTime:   { fontSize: 15, fontWeight: '700', color: C.textPrimary },
   logRowShift:  { fontSize: 11, color: C.textMuted, marginTop: 1 },
+  logRowPending: { fontSize: 11, color: C.info, marginTop: 1, fontWeight: '600' },
   logTypeBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
   logBadgeIn:   { backgroundColor: C.inLight },
   logBadgeOut:  { backgroundColor: C.outLight },
@@ -548,13 +706,13 @@ const styles = StyleSheet.create({
   empFooter: {
     marginHorizontal: 16, marginTop: 14,
     backgroundColor: C.card, borderRadius: 12, padding: 14,
-    shadowColor: '#000',
+    shadowColor: C.shadow,
     shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04,
     shadowRadius: 3, elevation: 1,
   },
   empFooterLabel: { fontSize: 10, color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
   empFooterVal:   { fontSize: 15, fontWeight: '700', color: C.textSecond },
   empFooterDept:  { fontSize: 11, color: C.textMuted, marginTop: 2 },
-});
+}));
 
 export default HomeScreen;

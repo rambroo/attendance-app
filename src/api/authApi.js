@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { encode as base64Encode } from 'base-64';
 import axios from 'axios';
 import { getSecret, setSecret, deleteSecret } from '../utils/secureStore';
+import { resetServerCaps } from '../utils/serverCaps';
 
 const AUTH_KEYS = [
   'authToken', 'apiKey', 'authMethod',
@@ -52,7 +53,15 @@ export const loginWithPassword = async (email, password) => {
         setSecret('savedEmail', email),
         setSecret('savedPassword', password),
       ]);
+      // Frappe's /api/method/login returns only { message, home_page, full_name }.
+      // The `sid` is set as an httpOnly Set-Cookie header and is NOT in the body,
+      // so this almost never fires — it is kept only for sites/proxies that do
+      // echo it back. Real session continuity comes from the native HTTP stack's
+      // cookie jar, which persists the httpOnly sid automatically.
       if (data.sid) await AsyncStorage.setItem('sessionId', data.sid);
+      // Re-probe what the site supports. Gives a deterministic way to pick up a
+      // backend deploy ("log out and back in") instead of waiting for the TTL.
+      await resetServerCaps();
       return { success: true, fullName: data.full_name, email };
     }
 
@@ -60,7 +69,11 @@ export const loginWithPassword = async (email, password) => {
   } catch (error) {
     console.error('Login error:', error.response?.data || error.message);
     if (error.response?.status === 401 || error.response?.data?.exc) {
-      throw new Error('Invalid email or password. Please try again.');
+      // Tagged so silentReLogin can tell "wrong password" (a real logout) from
+      // "couldn't reach the server" (transient — keep the user where they are).
+      const e = new Error('Invalid email or password. Please try again.');
+      e.authFailed = true;
+      throw e;
     }
     if (error.code === 'ECONNREFUSED' || error.code === 'ERR_NETWORK') {
       throw new Error('Cannot connect to server. Check your network or site URL.');
@@ -70,18 +83,29 @@ export const loginWithPassword = async (email, password) => {
 };
 
 // Silently re-authenticates using saved credentials.
-// Returns true on success, false if credentials are missing or wrong.
+//
+// Returns { ok, reason }. The reason matters: callers must not drop the user to
+// the login screen just because the device was offline for a moment. Only
+// 'no-credentials' and 'invalid-credentials' are real logout conditions.
 export const silentReLogin = async () => {
+  let email, password;
   try {
-    const [email, password] = await Promise.all([
+    [email, password] = await Promise.all([
       getSecret('savedEmail'),
       getSecret('savedPassword'),
     ]);
-    if (!email || !password) return false;
-    await loginWithPassword(email, password);
-    return true;
   } catch {
-    return false;
+    return { ok: false, reason: 'no-credentials' };
+  }
+  if (!email || !password) return { ok: false, reason: 'no-credentials' };
+
+  try {
+    await loginWithPassword(email, password);
+    return { ok: true, reason: 'success' };
+  } catch (err) {
+    // Anything that isn't an explicit credential rejection is treated as
+    // transient, so a flaky connection never costs the user their session.
+    return { ok: false, reason: err.authFailed ? 'invalid-credentials' : 'network' };
   }
 };
 
@@ -110,8 +134,10 @@ export const logout = async () => {
           getSiteBase(),
           AsyncStorage.getItem('sessionId'),
         ]);
+        // Without a stored sid the cookie jar carries the real one; sending
+        // "Cookie: sid=null" would just override it with garbage.
         await axios.post(`${base}/api/method/logout`, {}, {
-          headers: { Cookie: `sid=${sid}` },
+          headers: sid ? { Cookie: `sid=${sid}` } : {},
         });
       } catch { /* ignore server-side logout errors */ }
     }
@@ -123,16 +149,32 @@ export const logout = async () => {
   }
 };
 
+// Is there a usable session on this device?
+//
+// This must NOT require a network call. It runs on every cold start, and if it
+// returns false the app drops to the login screen. It previously also required
+// a stored `sessionId`, which Frappe never sends in the login body (see
+// loginWithPassword) — so it returned false on every launch, forcing a full
+// network re-login each time and logging the user out whenever that request
+// failed. That was the "app randomly logs me out" complaint.
+//
+// A dead session is now detected where it actually shows up: on the first API
+// call, via the session_expired flag in apiClient, which triggers silentReLogin.
 export const isAuthenticated = async () => {
   try {
-    const isLoggedIn = await AsyncStorage.getItem('isLoggedIn');
-    const authMethod = await AsyncStorage.getItem('authMethod');
+    const [isLoggedIn, authMethod] = await Promise.all([
+      AsyncStorage.getItem('isLoggedIn'),
+      AsyncStorage.getItem('authMethod'),
+    ]);
+    if (isLoggedIn !== 'true') return false;
+
     if (authMethod === 'api_key') {
-      const token = await AsyncStorage.getItem('authToken');
-      return isLoggedIn === 'true' && !!token;
-    } else if (authMethod === 'password') {
-      const sid = await AsyncStorage.getItem('sessionId');
-      return isLoggedIn === 'true' && !!sid;
+      return !!(await AsyncStorage.getItem('authToken'));
+    }
+    if (authMethod === 'password') {
+      // The sid lives in the native cookie jar, not here. If the cookie has
+      // lapsed, the first API call reports it and silentReLogin recovers.
+      return true;
     }
     return false;
   } catch { return false; }

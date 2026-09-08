@@ -7,7 +7,7 @@ import {
 import { encode as base64Encode } from 'base-64';
 import { loginWithPassword } from '../api/authApi';
 import { getSiteLabel, saveKioskConfig } from '../utils/siteConfig';
-import { C } from '../utils/theme';
+import { C, themed } from '../utils/theme';
 
 const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
   const [email, setEmail]           = useState('');
@@ -149,7 +149,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
             activeOpacity={0.85}
           >
             {loading
-              ? <ActivityIndicator color="#fff" size="small" />
+              ? <ActivityIndicator color={C.onBrand} size="small" />
               : <Text style={styles.loginBtnText}>Sign In →</Text>}
           </TouchableOpacity>
         </View>
@@ -217,7 +217,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
                 activeOpacity={0.85}
               >
                 {kioskLoading
-                  ? <ActivityIndicator color="#fff" size="small" />
+                  ? <ActivityIndicator color={C.onBrand} size="small" />
                   : <Text style={styles.loginBtnText}>Start Kiosk →</Text>}
               </TouchableOpacity>
 
@@ -232,7 +232,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   scroll: {
     flexGrow: 1, paddingHorizontal: 24,
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.card, borderRadius: 50,
     paddingHorizontal: 14, paddingVertical: 8,
     alignSelf: 'center', marginBottom: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowColor: C.shadow, shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
     maxWidth: '90%',
   },
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.errorLight, borderRadius: 10, padding: 12,
     marginBottom: 14, borderLeftWidth: 3, borderLeftColor: C.out,
   },
-  errorText: { color: '#991B1B', fontSize: 13, fontWeight: '500' },
+  errorText: { color: C.errorText, fontSize: 13, fontWeight: '500' },
 
   loginBtn: {
     backgroundColor: C.brand, borderRadius: 50,
@@ -304,7 +304,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
   },
   loginBtnDisabled: { backgroundColor: C.textMuted, shadowOpacity: 0, elevation: 0 },
-  loginBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
+  loginBtnText: { color: C.onBrand, fontSize: 16, fontWeight: '700', letterSpacing: 0.5 },
 
   hint: { textAlign: 'center', fontSize: 12, color: C.textMuted, lineHeight: 18 },
 
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
   kioskLinkText: { fontSize: 13, color: C.textMuted, fontWeight: '500' },
 
   // Kiosk setup modal
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalOverlay: { flex: 1, backgroundColor: C.scrimLight, justifyContent: 'flex-end' },
   modalSheet: {
     backgroundColor: C.card, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     padding: 24, paddingBottom: 40,
@@ -326,13 +326,13 @@ const styles = StyleSheet.create({
 
   inputError: { borderColor: C.error },
   kioskBtn: {
-    backgroundColor: '#F59E0B', borderRadius: 50,
+    backgroundColor: C.warn, borderRadius: 50,
     paddingVertical: 15, alignItems: 'center', marginTop: 4,
-    shadowColor: '#B45309', shadowOffset: { width: 0, height: 6 },
+    shadowColor: C.warnText, shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35, shadowRadius: 10, elevation: 6,
   },
   cancelBtn:  { alignItems: 'center', paddingVertical: 14 },
   cancelText: { fontSize: 14, color: C.textSecond, fontWeight: '600' },
-});
+}));
 
 export default LoginScreen;
