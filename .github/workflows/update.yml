@@ -4,23 +4,33 @@ on:
   push:
     branches: [main]
 
+# Publishes to the `preview` channel only — the internal test track.
+# Play Store builds are on the `production` channel and are updated
+# deliberately, by hand, once a change has been checked on a device:
+#   npx eas update --branch production --message "..."
 jobs:
   update:
     name: Publish OTA update
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - run: npm install
+      # ci, not install: the lockfile is authoritative and this cannot silently
+      # drift the dependency tree that gets bundled into the update.
+      - run: npm ci
 
       - uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
+          # This repo is npm-only (package-lock.json, no yarn.lock). The action
+          # otherwise defaults to yarn to install eas-cli, which is what failed
+          # with "The process '/usr/local/bin/yarn' failed with exit code 1".
+          packager: npm
 
       - run: eas update --branch preview --message "${{ github.event.head_commit.message }}" --non-interactive
