@@ -314,15 +314,6 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
     return 'Good Evening';
   }, []);
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={C.brand} />
-        <Text style={styles.loadingText}>Loading attendance…</Text>
-      </View>
-    );
-  }
-
   // Queued punches are shown alongside confirmed ones and count towards every
   // derived value. Without this, tapping "Punch In" offline would leave the
   // button still reading "Punch In" and today's hours unchanged, which reads as
@@ -330,6 +321,11 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
   // Derived once per data change rather than per render. Every parent re-render
   // (offline flag, sync badge, opening a sheet) used to redo the spread, the
   // sort, the hours calculation and two scans over the list.
+  //
+  // This MUST stay above the `if (loading)` return below. It was once placed
+  // after it, which made the hook count differ between the loading render and
+  // the loaded one; React throws "Rendered more hooks than during the previous
+  // render" and the ErrorBoundary showed "Something went wrong" on every launch.
   const { merged, reversed, nextType, isCurrentlyIn, hoursWorked, firstIn, lastOut } =
     useMemo(() => {
       const all = [
@@ -356,6 +352,16 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
 
   mergedRef.current = merged;
   const isPunchIn = nextType === 'IN';
+
+  // Early returns only after every hook — see the comment on useMemo above.
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={C.brand} />
+        <Text style={styles.loadingText}>Loading attendance…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
