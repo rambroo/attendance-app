@@ -4,6 +4,7 @@ import {
   Text, TouchableOpacity, Alert,
 } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Updates from 'expo-updates';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,6 +23,7 @@ import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from '.
 import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
 import { resetServerCaps } from './src/utils/serverCaps';
 import { C, themed, useThemeName, loadSavedTheme } from './src/utils/theme';
+import { getBuildTag } from './src/utils/buildInfo';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -87,20 +89,32 @@ const AUTH_KEYS = [
 // Catches unexpected render/runtime errors so a release build shows a
 // recoverable screen instead of hard-crashing (protects Play Store vitals).
 class ErrorBoundary extends React.Component {
-  state = { hasError: false };
+  state = { error: null };
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return { error: error || new Error('Unknown error') };
   }
 
   componentDidCatch(error, info) {
     console.warn('Unhandled app error:', error, info?.componentStack);
   }
 
-  handleRetry = () => this.setState({ hasError: false });
+  // Re-rendering the same JS bundle cannot recover from a deterministic render
+  // bug — the same code throws again, which is why "Reload" used to appear to do
+  // nothing and users resorted to reinstalling. A real bundle reload also applies
+  // any fixed OTA update that expo-updates has downloaded since launch.
+  handleRetry = async () => {
+    if (Updates.isEnabled) {
+      try {
+        await Updates.reloadAsync();
+        return;
+      } catch { /* not reloadable here (e.g. Expo Go) — fall back to a soft retry */ }
+    }
+    this.setState({ error: null });
+  };
 
   render() {
-    if (this.state.hasError) {
+    if (this.state.error) {
       return (
         <View style={styles.errorRoot}>
           <Text style={styles.errorEmoji}>😕</Text>
@@ -108,6 +122,13 @@ class ErrorBoundary extends React.Component {
           <Text style={styles.errorBody}>
             An unexpected error occurred. Tap below to reload the app.
           </Text>
+          {/* Release builds strip console output, so without this the only
+              evidence of a crash is a user's description of it. */}
+          <Text style={styles.errorDetail} selectable numberOfLines={4}>
+            {String(this.state.error?.message || '').slice(0, 300)}
+          </Text>
+          {/* So a screenshot of a crash also says which version crashed. */}
+          <Text style={styles.errorBuild}>{getBuildTag()}</Text>
           <TouchableOpacity style={styles.errorBtn} onPress={this.handleRetry} activeOpacity={0.85}>
             <Text style={styles.errorBtnText}>Reload</Text>
           </TouchableOpacity>
@@ -326,7 +347,9 @@ const styles = themed(() => StyleSheet.create({
   },
   errorEmoji: { fontSize: 48, marginBottom: 16 },
   errorTitle: { fontSize: 20, fontWeight: '700', color: C.textPrimary, marginBottom: 8 },
-  errorBody:  { fontSize: 14, color: C.textMuted, textAlign: 'center', lineHeight: 21, marginBottom: 24 },
+  errorBody:  { fontSize: 14, color: C.textMuted, textAlign: 'center', lineHeight: 21, marginBottom: 12 },
+  errorDetail: { fontSize: 11, color: C.textMuted, textAlign: 'center', marginBottom: 8, fontFamily: 'monospace' },
+  errorBuild:  { fontSize: 11, color: C.textMuted, textAlign: 'center', marginBottom: 24 },
   errorBtn: {
     backgroundColor: C.brand, borderRadius: 50,
     paddingVertical: 14, paddingHorizontal: 48,

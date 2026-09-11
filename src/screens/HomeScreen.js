@@ -23,6 +23,7 @@ import {
 import { getStoredUser } from '../api/authApi';
 import PunchModal from '../components/PunchModal';
 import ThemePicker from '../components/ThemePicker';
+import { getBuildTag } from '../utils/buildInfo';
 
 // How often to retry a stuck queue while the screen is open. The app has no
 // connectivity listener (adding one would mean a new native module and a store
@@ -314,15 +315,6 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
     return 'Good Evening';
   }, []);
 
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={C.brand} />
-        <Text style={styles.loadingText}>Loading attendance…</Text>
-      </View>
-    );
-  }
-
   // Queued punches are shown alongside confirmed ones and count towards every
   // derived value. Without this, tapping "Punch In" offline would leave the
   // button still reading "Punch In" and today's hours unchanged, which reads as
@@ -330,6 +322,11 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
   // Derived once per data change rather than per render. Every parent re-render
   // (offline flag, sync badge, opening a sheet) used to redo the spread, the
   // sort, the hours calculation and two scans over the list.
+  //
+  // This MUST stay above the `if (loading)` return below. It was once placed
+  // after it, which made the hook count differ between the loading render and
+  // the loaded one; React throws "Rendered more hooks than during the previous
+  // render" and the ErrorBoundary showed "Something went wrong" on every launch.
   const { merged, reversed, nextType, isCurrentlyIn, hoursWorked, firstIn, lastOut } =
     useMemo(() => {
       const all = [
@@ -356,6 +353,16 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
 
   mergedRef.current = merged;
   const isPunchIn = nextType === 'IN';
+
+  // Early returns only after every hook — see the comment on useMemo above.
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={C.brand} />
+        <Text style={styles.loadingText}>Loading attendance…</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -544,6 +551,10 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
             : null}
         </View>
 
+        {/* Which code this phone is running — see utils/buildInfo.js. Here as
+            well as on Login, because logged-in staff never see Login again. */}
+        <Text style={styles.buildTag}>{getBuildTag()}</Text>
+
         <View style={{ height: 24 }} />
       </ScrollView>
     </View>
@@ -713,6 +724,7 @@ const styles = themed(() => StyleSheet.create({
   empFooterLabel: { fontSize: 10, color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
   empFooterVal:   { fontSize: 15, fontWeight: '700', color: C.textSecond },
   empFooterDept:  { fontSize: 11, color: C.textMuted, marginTop: 2 },
+  buildTag:       { alignSelf: 'center', marginTop: 10, fontSize: 11, color: C.textMuted, opacity: 0.8 },
 }));
 
 export default HomeScreen;
