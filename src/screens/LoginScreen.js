@@ -8,6 +8,7 @@ import { encode as base64Encode } from 'base-64';
 import { loginWithPassword } from '../api/authApi';
 import { getSiteLabel, saveKioskConfig } from '../utils/siteConfig';
 import { C, themed } from '../utils/theme';
+import { getBuildTag } from '../utils/buildInfo';
 
 const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
   const [email, setEmail]           = useState('');
@@ -161,6 +162,9 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
         <TouchableOpacity style={styles.kioskLink} onPress={() => { setKioskError(''); setKioskModal(true); }} activeOpacity={0.7}>
           <Text style={styles.kioskLinkText}>🏫  Switch to Kiosk Mode</Text>
         </TouchableOpacity>
+
+        {/* Which code this phone is running — see utils/buildInfo.js */}
+        <Text style={styles.buildTag}>{getBuildTag()}</Text>
       </ScrollView>
 
       {/* ── Kiosk Setup Modal ── */}
@@ -310,6 +314,7 @@ const styles = themed(() => StyleSheet.create({
 
   kioskLink: { alignSelf: 'center', marginTop: 20, paddingVertical: 10, paddingHorizontal: 20 },
   kioskLinkText: { fontSize: 13, color: C.textMuted, fontWeight: '500' },
+  buildTag: { alignSelf: 'center', marginTop: 12, fontSize: 11, color: C.textMuted, opacity: 0.8 },
 
   // Kiosk setup modal
   modalOverlay: { flex: 1, backgroundColor: C.scrimLight, justifyContent: 'flex-end' },

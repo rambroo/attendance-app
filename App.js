@@ -23,6 +23,7 @@ import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from '.
 import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
 import { resetServerCaps } from './src/utils/serverCaps';
 import { C, themed, useThemeName, loadSavedTheme } from './src/utils/theme';
+import { getBuildTag } from './src/utils/buildInfo';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -126,6 +127,8 @@ class ErrorBoundary extends React.Component {
           <Text style={styles.errorDetail} selectable numberOfLines={4}>
             {String(this.state.error?.message || '').slice(0, 300)}
           </Text>
+          {/* So a screenshot of a crash also says which version crashed. */}
+          <Text style={styles.errorBuild}>{getBuildTag()}</Text>
           <TouchableOpacity style={styles.errorBtn} onPress={this.handleRetry} activeOpacity={0.85}>
             <Text style={styles.errorBtnText}>Reload</Text>
           </TouchableOpacity>
@@ -345,7 +348,8 @@ const styles = themed(() => StyleSheet.create({
   errorEmoji: { fontSize: 48, marginBottom: 16 },
   errorTitle: { fontSize: 20, fontWeight: '700', color: C.textPrimary, marginBottom: 8 },
   errorBody:  { fontSize: 14, color: C.textMuted, textAlign: 'center', lineHeight: 21, marginBottom: 12 },
-  errorDetail: { fontSize: 11, color: C.textMuted, textAlign: 'center', marginBottom: 24, fontFamily: 'monospace' },
+  errorDetail: { fontSize: 11, color: C.textMuted, textAlign: 'center', marginBottom: 8, fontFamily: 'monospace' },
+  errorBuild:  { fontSize: 11, color: C.textMuted, textAlign: 'center', marginBottom: 24 },
   errorBtn: {
     backgroundColor: C.brand, borderRadius: 50,
     paddingVertical: 14, paddingHorizontal: 48,

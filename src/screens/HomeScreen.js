@@ -23,6 +23,7 @@ import {
 import { getStoredUser } from '../api/authApi';
 import PunchModal from '../components/PunchModal';
 import ThemePicker from '../components/ThemePicker';
+import { getBuildTag } from '../utils/buildInfo';
 
 // How often to retry a stuck queue while the screen is open. The app has no
 // connectivity listener (adding one would mean a new native module and a store
@@ -550,6 +551,10 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
             : null}
         </View>
 
+        {/* Which code this phone is running — see utils/buildInfo.js. Here as
+            well as on Login, because logged-in staff never see Login again. */}
+        <Text style={styles.buildTag}>{getBuildTag()}</Text>
+
         <View style={{ height: 24 }} />
       </ScrollView>
     </View>
@@ -719,6 +724,7 @@ const styles = themed(() => StyleSheet.create({
   empFooterLabel: { fontSize: 10, color: C.textMuted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 },
   empFooterVal:   { fontSize: 15, fontWeight: '700', color: C.textSecond },
   empFooterDept:  { fontSize: 11, color: C.textMuted, marginTop: 2 },
+  buildTag:       { alignSelf: 'center', marginTop: 10, fontSize: 11, color: C.textMuted, opacity: 0.8 },
 }));
 
 export default HomeScreen;
