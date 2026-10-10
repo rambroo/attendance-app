@@ -5,13 +5,11 @@ import {
   StatusBar, Linking, TextInput, KeyboardAvoidingView, Platform, AppState,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as Location from 'expo-location';
 import { C, themed } from '../utils/theme';
 import { pickPictureSize, CAPTURE_QUALITY } from '../utils/camera';
+import { useTrackedLocation, refreshLocation } from '../utils/locationTracker';
 
 const MAX_LOCATION_RETRIES = 3;
-const LOCATION_TIMEOUT_MS  = 12000;
-const GEOCODE_TIMEOUT_MS   = 5000;
 // A capture that has not finished by now is not going to: the camera lost its
 // session underneath us. Give up, restart it, and let the user tap again rather
 // than leaving them on a frozen screen.
@@ -24,24 +22,26 @@ const CAMERA_READY_FALLBACK_MS = 4000;
 // Passing it from the start means later opens never have to rebuild the camera.
 let cachedPictureSize;
 
-// getCurrentPositionAsync has no timeout option and can hang indefinitely on
-// devices with a poor GPS fix — race it against a real timer.
+// takePictureAsync can hang on a camera that lost its session — race it
+// against a real timer.
 const withTimeout = (promise, ms) =>
   Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
   ]);
 
-// ── Location status machine ───────────────────────────────────────────────────
-// 'fetching' → 'ok' | 'error' | 'denied' | 'off' (device location switched off)
+// ── Location ──────────────────────────────────────────────────────────────────
+// This screen never fetches location or asks for permission: doing either opens
+// a system dialog over the live camera, which is what blanked it. Location is
+// tracked app-wide from launch (utils/locationTracker.js) and read here.
+// status: 'fetching' | 'ok' | 'error' | 'denied' | 'off'
 
 const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const { status: locationStatus, location } = useTrackedLocation();
   const [phase,                setPhase]                = useState('camera');   // 'camera' | 'preview'
   const [photo,                setPhoto]                = useState(null);
   const [notes,                setNotes]                = useState('');
-  const [location,             setLocation]             = useState(null);
-  const [locationStatus,       setLocationStatus]       = useState('fetching');
   const [locationRetries,      setLocationRetries]      = useState(0);
   const [forceWithoutLocation, setForceWithoutLocation] = useState(false);
   const [pictureSize,          setPictureSize]          = useState(cachedPictureSize);
@@ -80,76 +80,17 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
   const isPunchIn = logType === 'IN';
   const accent    = isPunchIn ? C.in : C.out;
 
-  // ── Location fetch ──────────────────────────────────────────────────────────
-
-  const doFetchLocation = useCallback(async () => {
-    setLocationStatus('fetching');
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationStatus('denied');
-        return;
-      }
-
-      // Device location switched off: say so instead of fetching. Left alone,
-      // getCurrentPositionAsync opens Android's "turn on location" screen on
-      // top of the live camera, which pauses the app mid-capture.
-      if (!(await Location.hasServicesEnabledAsync())) {
-        setLocation(null);
-        setLocationStatus('off');
-        return;
-      }
-
-      let coords = null;
-      try {
-        ({ coords } = await withTimeout(
-          // mayShowUserSettingsDialog: false — never open a system settings
-          // screen while the camera is running. See handleTurnOnLocation.
-          Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-            mayShowUserSettingsDialog: false,
-          }),
-          LOCATION_TIMEOUT_MS,
-        ));
-      } catch {
-        // Fresh fix failed — fall back to a recent cached position (≤60s old)
-        const last = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
-        if (!last) throw new Error('no location');
-        ({ coords } = last);
-      }
-
-      const { latitude, longitude } = coords;
-      let address = '';
-      try {
-        const places = await withTimeout(
-          Location.reverseGeocodeAsync({ latitude, longitude }),
-          GEOCODE_TIMEOUT_MS,
-        );
-        if (places.length > 0) {
-          const p = places[0];
-          address = [p.name, p.street, p.district, p.city].filter(Boolean).slice(0, 3).join(', ');
-        }
-      } catch { /* address stays empty */ }
-      setLocation({ latitude, longitude, address });
-      setLocationStatus('ok');
-    } catch {
-      setLocationStatus('error');
-      setLocation(null);
-    }
-  }, []);
-
+  // Both only reachable from the preview screen, where the camera has closed,
+  // so a dialog from Android cannot interrupt it.
   const handleRetryLocation = useCallback(() => {
     setLocationRetries((n) => n + 1);
     setForceWithoutLocation(false);
-    doFetchLocation();
-  }, [doFetchLocation]);
+    refreshLocation({ promptUser: false });
+  }, []);
 
-  // Only reachable from a tap on the preview screen, where the camera has
-  // already closed — so Android's location settings screen can't interrupt it.
-  const handleTurnOnLocation = useCallback(async () => {
-    try { await Location.enableNetworkProviderAsync(); } catch { /* user declined */ }
-    doFetchLocation();
-  }, [doFetchLocation]);
+  const handleTurnOnLocation = useCallback(() => {
+    refreshLocation({ promptUser: true });
+  }, []);
 
   // Reset on every open
   useEffect(() => {
@@ -157,16 +98,13 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
       setPhase('camera');
       setPhoto(null);
       setNotes('');
-      setLocation(null);
-      setLocationStatus('fetching');
       setLocationRetries(0);
       setForceWithoutLocation(false);
       setCameraReady(false);
       setCapturing(false);
       capturingRef.current = false;
-      doFetchLocation();
     }
-  }, [visible, doFetchLocation]);
+  }, [visible]);
 
   // Mount a fresh camera. Used when the current one may have no live session:
   // a capture that never finished, or the app coming back from a system screen
