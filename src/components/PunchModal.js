@@ -225,6 +225,12 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
                 ref={cameraRef}
                 style={StyleSheet.absoluteFill}
                 facing="front"
+                // animateShutter={false}: expo-camera's Android shutter flash paints the WHOLE
+                // window white and clears it 50 ms later by looking the window up again. If the
+                // photo returns fast and this view has already unmounted, the clear misses and
+                // the window stays white over every screen until the app is restarted.
+                // Seen on a OnePlus Nord: preview UI intact underneath a solid white layer.
+                animateShutter={false}
                 pictureSize={pictureSize}
                 onCameraReady={handleCameraReady}
               />

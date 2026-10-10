@@ -121,6 +121,7 @@ const CameraModal = memo(({ visible, onCapture, onSkip }) => {
               ref={cameraRef}
               style={cam.camera}
               facing="front"
+              animateShutter={false}   // see PunchModal: the flash can leave the window white
               pictureSize={pictureSize}
               onCameraReady={handleCameraReady}
             />
