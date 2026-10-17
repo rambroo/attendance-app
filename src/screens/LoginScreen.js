@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { encode as base64Encode } from 'base-64';
 import { loginWithPassword } from '../api/authApi';
-import { getSiteLabel, saveKioskConfig } from '../utils/siteConfig';
+import { getSiteLabel, saveKioskConfig, kioskPinProblem } from '../utils/siteConfig';
 import { C, themed } from '../utils/theme';
 import { getBuildTag } from '../utils/buildInfo';
 
@@ -22,7 +22,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
   const [kioskModal,   setKioskModal]   = useState(false);
   const [kioskKey,     setKioskKey]     = useState('');
   const [kioskLoc,     setKioskLoc]     = useState('Main Entrance');
-  const [kioskPin,     setKioskPin]     = useState('0000');
+  const [kioskPin,     setKioskPin]     = useState('');
   const [kioskLoading, setKioskLoading] = useState(false);
   const [kioskError,   setKioskError]   = useState('');
 
@@ -34,9 +34,11 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
     setKioskError('');
     if (!kioskKey.trim()) { setKioskError('Please enter the Kiosk API Key.'); return; }
     if (!kioskKey.includes(':')) { setKioskError('Format must be  apiKey:apiSecret'); return; }
+    const pinProblem = kioskPinProblem(kioskPin.trim());
+    if (pinProblem) { setKioskError(pinProblem); return; }
     setKioskLoading(true);
     try {
-      await saveKioskConfig({ apiKey: base64Encode(kioskKey.trim()), location: kioskLoc.trim(), pin: kioskPin.trim() || '0000' });
+      await saveKioskConfig({ apiKey: base64Encode(kioskKey.trim()), location: kioskLoc.trim(), pin: kioskPin.trim() });
       setKioskModal(false);
       onKioskMode();
     } catch (err) {
@@ -202,7 +204,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
               <Text style={styles.label}>Admin Exit PIN (4 digits)</Text>
               <TextInput
                 style={styles.input}
-                placeholder="0000"
+                placeholder="Choose 4 digits"
                 value={kioskPin}
                 onChangeText={setKioskPin}
                 keyboardType="numeric"

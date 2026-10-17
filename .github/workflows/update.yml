@@ -33,4 +33,12 @@ jobs:
           # with "The process '/usr/local/bin/yarn' failed with exit code 1".
           packager: npm
 
-      - run: eas update --branch preview --message "${{ github.event.head_commit.message }}" --non-interactive
+      # The commit message is passed through an env var, never pasted into the
+      # command: a merged PR's title ends up in it, and pasting it would let
+      # that title run shell commands with EXPO_TOKEN.
+      - name: Publish update
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          TITLE="$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
+          eas update --branch preview --message "$TITLE" --non-interactive
