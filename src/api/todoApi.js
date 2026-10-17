@@ -150,11 +150,19 @@ export const createTodo = async ({ description, date, priority }) => {
 
 // The desk page for a task's linked document (e.g. /app/sales-invoice/SINV-0001),
 // to open in the browser. Same rule the desk uses for its URLs.
+//
+// Both parts come from the server and are encoded, so a name containing "/",
+// "?", "#" or a scheme stays inside the path and can't point anywhere else.
+// The result is only ever handed to the browser: no token or cookie goes with
+// it, and the browser's own login and Frappe's permissions apply there.
 export const getReferenceUrl = async (doctype, name) => {
   const site = await getSiteUrl();
   if (!site || !doctype || !name) return null;
+  if (name === '.' || name === '..' || !/^https?:\/\//.test(site)) return null;
   const slug = doctype.toLowerCase().replace(/ /g, '-');
-  return `${site}/app/${encodeURIComponent(slug)}/${encodeURIComponent(name)}`;
+  const url = `${site}/app/${encodeURIComponent(slug)}/${encodeURIComponent(name)}`;
+  // Belt and braces: only ever open a desk page on the user's own site.
+  return url.startsWith(`${site}/app/`) ? url : null;
 };
 
 // ToDo descriptions and comments are HTML from the desk's editor. The app
