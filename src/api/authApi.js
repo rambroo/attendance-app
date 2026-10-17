@@ -86,7 +86,16 @@ export const loginWithPassword = async (email, password) => {
 // Returns { ok, reason }. The reason matters: callers must not drop the user to
 // the login screen just because the device was offline for a moment. Only
 // 'no-credentials' and 'invalid-credentials' are real logout conditions.
-export const silentReLogin = async () => {
+// Several requests can notice an expired session at once; share one login.
+let reLoginInFlight = null;
+export const silentReLogin = () => {
+  if (!reLoginInFlight) {
+    reLoginInFlight = doSilentReLogin().finally(() => { reLoginInFlight = null; });
+  }
+  return reLoginInFlight;
+};
+
+const doSilentReLogin = async () => {
   let email, password;
   try {
     [email, password] = await Promise.all([

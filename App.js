@@ -22,6 +22,7 @@ import SiteSetupScreen from './src/screens/SiteSetupScreen';
 import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from './src/api/authApi';
 import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
 import { resetServerCaps } from './src/utils/serverCaps';
+import { setSessionExpiredHandler } from './src/api/apiClient';
 import { C, themed, useThemeName, loadSavedTheme } from './src/utils/theme';
 import { getBuildTag } from './src/utils/buildInfo';
 import { startLocationTracking, stopLocationTracking } from './src/utils/locationTracker';
@@ -263,6 +264,14 @@ function Root() {
       setLoggedIn(false);
     }
   }, []);
+
+  // Any API call that finds the session gone triggers a re-login, including
+  // background calls that swallow their own errors.
+  useEffect(() => {
+    if (!loggedIn || kioskMode) return undefined;
+    setSessionExpiredHandler(handleSessionExpired);
+    return () => setSessionExpiredHandler(null);
+  }, [loggedIn, kioskMode, handleSessionExpired]);
 
   const handleSwitchToKiosk = useCallback(() => {
     setKioskMode(true);
