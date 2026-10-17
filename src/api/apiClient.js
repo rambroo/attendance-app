@@ -54,6 +54,46 @@ const isSessionExpired = (error) => {
   return false;
 };
 
+// Frappe marks only the FIRST response after a session dies with
+// session_expired, and that same response clears the phone's sid cookie. Every
+// request after it carries no session at all and comes back as a plain 403 for
+// "Guest", with no marker. If the marked response landed on a background call
+// that ignores errors, the app would never re-login. So on a 403 without the
+// marker, ask the server who we are: Guest means the session is gone; anyone
+// else means a genuine permission denial.
+const requestIsGuest = async () => {
+  try {
+    const siteUrl = await AsyncStorage.getItem('siteUrl');
+    if (!siteUrl) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const resp = await fetch(`${siteUrl}/api/method/frappe.auth.get_logged_user`, {
+        headers: { Accept: 'application/json' }, signal: controller.signal,
+      });
+      if (resp.status === 401 || resp.status === 403) return true;
+      const body = await resp.json().catch(() => ({}));
+      return !body.message || body.message === 'Guest';
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return false;   // can't tell (offline): don't treat as a logout
+  }
+};
+
+// One place that reacts to an expired session, so it fires no matter which
+// call noticed it. App.js registers the handler (it runs silentReLogin).
+let sessionExpiredHandler = null;
+let lastNotified = 0;
+export const setSessionExpiredHandler = (fn) => { sessionExpiredHandler = fn; };
+const notifySessionExpired = () => {
+  const now = Date.now();
+  if (!sessionExpiredHandler || now - lastNotified < 30000) return;   // one re-login at a time
+  lastNotified = now;
+  try { sessionExpiredHandler(); } catch { /* ignore */ }
+};
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -61,7 +101,12 @@ apiClient.interceptors.response.use(
       console.error('API Error:', error.response.status, JSON.stringify(error.response.data));
       // Flag only — the auth keys are deliberately left in place so that
       // silentReLogin() can run before we decide to show the login screen.
-      if (isSessionExpired(error)) error.sessionExpired = true;
+      let expired = isSessionExpired(error);
+      if (!expired && error.response.status === 403) expired = await requestIsGuest();
+      if (expired) {
+        error.sessionExpired = true;
+        notifySessionExpired();
+      }
     } else if (error.request) {
       console.error('Network Error:', error.message);
     } else {

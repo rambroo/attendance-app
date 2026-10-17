@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { encode as base64Encode } from 'base-64';
 import axios from 'axios';
 import { getSecret, setSecret, deleteSecret } from '../utils/secureStore';
 import { resetServerCaps } from '../utils/serverCaps';
@@ -8,7 +7,7 @@ const AUTH_KEYS = [
   'authToken', 'apiKey', 'authMethod',
   'userEmail', 'userName', 'isLoggedIn',
   'sessionId', 'employeeId', 'employeeName',
-  'department', 'designation',
+  'department', 'designation', 'sessionUser',
 ];
 
 // Stored in SecureStore (Keystore-backed), not AsyncStorage
@@ -87,7 +86,16 @@ export const loginWithPassword = async (email, password) => {
 // Returns { ok, reason }. The reason matters: callers must not drop the user to
 // the login screen just because the device was offline for a moment. Only
 // 'no-credentials' and 'invalid-credentials' are real logout conditions.
-export const silentReLogin = async () => {
+// Several requests can notice an expired session at once; share one login.
+let reLoginInFlight = null;
+export const silentReLogin = () => {
+  if (!reLoginInFlight) {
+    reLoginInFlight = doSilentReLogin().finally(() => { reLoginInFlight = null; });
+  }
+  return reLoginInFlight;
+};
+
+const doSilentReLogin = async () => {
   let email, password;
   try {
     [email, password] = await Promise.all([
@@ -106,22 +114,6 @@ export const silentReLogin = async () => {
     // Anything that isn't an explicit credential rejection is treated as
     // transient, so a flaky connection never costs the user their session.
     return { ok: false, reason: err.authFailed ? 'invalid-credentials' : 'network' };
-  }
-};
-
-export const loginWithApiKey = async (apiKey, apiSecret) => {
-  try {
-    const token = base64Encode(`${apiKey}:${apiSecret}`);
-    await AsyncStorage.multiSet([
-      ['authToken',  token],
-      ['apiKey',     apiKey],
-      ['authMethod', 'api_key'],
-      ['isLoggedIn', 'true'],
-    ]);
-    return { success: true };
-  } catch (error) {
-    console.error('API Key login error:', error);
-    throw error;
   }
 };
 
