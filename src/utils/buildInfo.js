@@ -7,7 +7,7 @@ import * as Updates from 'expo-updates';
 // (v1 → v2 → v3 …). The date after it comes from expo-updates and never needs
 // bumping: it is the moment the running update was published. So even if the
 // label is forgotten, a new date on the phone still proves a new update arrived.
-export const APP_BUILD_LABEL = 'v1';
+export const APP_BUILD_LABEL = 'v4';
 
 const formatPublished = (date) => {
   try {

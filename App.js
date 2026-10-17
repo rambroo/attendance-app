@@ -24,6 +24,7 @@ import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/site
 import { resetServerCaps } from './src/utils/serverCaps';
 import { C, themed, useThemeName, loadSavedTheme } from './src/utils/theme';
 import { getBuildTag } from './src/utils/buildInfo';
+import { startLocationTracking, stopLocationTracking } from './src/utils/locationTracker';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -182,6 +183,16 @@ function Root() {
     };
     init();
   }, []);
+
+  // Ask for location and start tracking as soon as an employee is in the app,
+  // not when they tap Punch. The punch screen then only reads the latest fix,
+  // so no permission or "turn on location" dialog can open over its camera.
+  // Kiosk mode records punches by ID and needs no location.
+  useEffect(() => {
+    if (!appReady || !loggedIn || kioskMode) return undefined;
+    startLocationTracking();
+    return stopLocationTracking;
+  }, [appReady, loggedIn, kioskMode]);
 
   const onLayoutRootView = useCallback(async () => {
     if (appReady) await SplashScreen.hideAsync();

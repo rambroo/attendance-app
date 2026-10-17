@@ -2,104 +2,95 @@ import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   Modal, ActivityIndicator, Alert, Image,
-  StatusBar, Linking, TextInput, KeyboardAvoidingView, Platform,
+  StatusBar, Linking, TextInput, KeyboardAvoidingView, Platform, AppState,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as Location from 'expo-location';
 import { C, themed } from '../utils/theme';
 import { pickPictureSize, CAPTURE_QUALITY } from '../utils/camera';
+import { useTrackedLocation, refreshLocation } from '../utils/locationTracker';
 
 const MAX_LOCATION_RETRIES = 3;
-const LOCATION_TIMEOUT_MS  = 12000;
-const GEOCODE_TIMEOUT_MS   = 5000;
+// A capture that has not finished by now is not going to: the camera lost its
+// session underneath us. Give up, restart it, and let the user tap again rather
+// than leaving them on a frozen screen.
+const CAPTURE_TIMEOUT_MS       = 10000;
+// If the camera never reports ready (some devices drop the event after a
+// rebuild), enable the shutter anyway rather than disabling it forever.
+const CAMERA_READY_FALLBACK_MS = 4000;
 
-// getCurrentPositionAsync has no timeout option and can hang indefinitely on
-// devices with a poor GPS fix — race it against a real timer.
+// The capture size chosen on the first open, kept for the rest of the session.
+// Passing it from the start means later opens never have to rebuild the camera.
+let cachedPictureSize;
+
+// takePictureAsync can hang on a camera that lost its session — race it
+// against a real timer.
 const withTimeout = (promise, ms) =>
   Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
   ]);
 
-// ── Location status machine ───────────────────────────────────────────────────
-// 'fetching' → 'ok' | 'error' | 'denied'
+// ── Location ──────────────────────────────────────────────────────────────────
+// This screen never fetches location or asks for permission: doing either opens
+// a system dialog over the live camera, which is what blanked it. Location is
+// tracked app-wide from launch (utils/locationTracker.js) and read here.
+// status: 'fetching' | 'ok' | 'error' | 'denied' | 'off'
 
 const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const { status: locationStatus, location } = useTrackedLocation();
   const [phase,                setPhase]                = useState('camera');   // 'camera' | 'preview'
   const [photo,                setPhoto]                = useState(null);
   const [notes,                setNotes]                = useState('');
-  const [location,             setLocation]             = useState(null);
-  const [locationStatus,       setLocationStatus]       = useState('fetching');
   const [locationRetries,      setLocationRetries]      = useState(0);
   const [forceWithoutLocation, setForceWithoutLocation] = useState(false);
-  const [pictureSize,          setPictureSize]          = useState(undefined);
-  const cameraRef = useRef(null);
+  const [pictureSize,          setPictureSize]          = useState(cachedPictureSize);
+  // The shutter only works once the camera has a live session. Tapping it
+  // earlier — e.g. while the camera rebuilds itself for a new picture size —
+  // is what produced a blank screen.
+  const [cameraReady,          setCameraReady]          = useState(false);
+  const [capturing,            setCapturing]            = useState(false);
+  const [cameraKey,            setCameraKey]            = useState(0);   // bump to remount the camera
+  const cameraRef    = useRef(null);
+  const capturingRef = useRef(false);
 
   // Pick a modest capture resolution once the camera is up. Left undefined the
   // camera shoots at full sensor size, producing multi-megabyte selfies that
   // dominate punch time on a mobile uplink.
+  //
+  // Setting pictureSize makes expo-camera tear the camera down and bind a new
+  // one, which fires onCameraReady again — so the shutter is only enabled on
+  // that second event, when the rebuilt camera is actually live.
   const handleCameraReady = useCallback(async () => {
-    if (pictureSize) return;
+    if (pictureSize) {
+      setCameraReady(true);
+      return;
+    }
     try {
-      const sizes = await cameraRef.current?.getAvailablePictureSizesAsync();
-      const chosen = pickPictureSize(sizes);
-      if (chosen) setPictureSize(chosen);
+      const chosen = pickPictureSize(await cameraRef.current?.getAvailablePictureSizesAsync());
+      if (chosen) {
+        cachedPictureSize = chosen;
+        setPictureSize(chosen);
+        return;   // wait for the rebuilt camera to report ready
+      }
     } catch { /* keep the camera default rather than failing the punch */ }
+    setCameraReady(true);
   }, [pictureSize]);
 
   const isPunchIn = logType === 'IN';
   const accent    = isPunchIn ? C.in : C.out;
 
-  // ── Location fetch ──────────────────────────────────────────────────────────
-
-  const doFetchLocation = useCallback(async () => {
-    setLocationStatus('fetching');
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationStatus('denied');
-        return;
-      }
-
-      let coords = null;
-      try {
-        ({ coords } = await withTimeout(
-          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
-          LOCATION_TIMEOUT_MS,
-        ));
-      } catch {
-        // Fresh fix failed — fall back to a recent cached position (≤60s old)
-        const last = await Location.getLastKnownPositionAsync({ maxAge: 60000 });
-        if (!last) throw new Error('no location');
-        ({ coords } = last);
-      }
-
-      const { latitude, longitude } = coords;
-      let address = '';
-      try {
-        const places = await withTimeout(
-          Location.reverseGeocodeAsync({ latitude, longitude }),
-          GEOCODE_TIMEOUT_MS,
-        );
-        if (places.length > 0) {
-          const p = places[0];
-          address = [p.name, p.street, p.district, p.city].filter(Boolean).slice(0, 3).join(', ');
-        }
-      } catch { /* address stays empty */ }
-      setLocation({ latitude, longitude, address });
-      setLocationStatus('ok');
-    } catch {
-      setLocationStatus('error');
-      setLocation(null);
-    }
-  }, []);
-
+  // Both only reachable from the preview screen, where the camera has closed,
+  // so a dialog from Android cannot interrupt it.
   const handleRetryLocation = useCallback(() => {
     setLocationRetries((n) => n + 1);
     setForceWithoutLocation(false);
-    doFetchLocation();
-  }, [doFetchLocation]);
+    refreshLocation({ promptUser: false });
+  }, []);
+
+  const handleTurnOnLocation = useCallback(() => {
+    refreshLocation({ promptUser: true });
+  }, []);
 
   // Reset on every open
   useEffect(() => {
@@ -107,26 +98,63 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
       setPhase('camera');
       setPhoto(null);
       setNotes('');
-      setLocation(null);
-      setLocationStatus('fetching');
       setLocationRetries(0);
       setForceWithoutLocation(false);
-      doFetchLocation();
+      setCameraReady(false);
+      setCapturing(false);
+      capturingRef.current = false;
     }
-  }, [visible, doFetchLocation]);
+  }, [visible]);
+
+  // Mount a fresh camera. Used when the current one may have no live session:
+  // a capture that never finished, or the app coming back from a system screen
+  // (location settings, a permission prompt, the notification shade).
+  const restartCamera = useCallback(() => {
+    setCameraReady(false);
+    setCameraKey((k) => k + 1);
+  }, []);
+
+  // A system screen over the app flips AppState to 'background' on Android and
+  // back to 'active' when it closes. The camera can come back black from that,
+  // so restart it — unless a capture is in flight.
+  useEffect(() => {
+    if (!visible || phase !== 'camera') return undefined;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && !capturingRef.current) restartCamera();
+    });
+    return () => sub.remove();
+  }, [visible, phase, restartCamera]);
+
+  useEffect(() => {
+    if (!visible || phase !== 'camera' || cameraReady) return undefined;
+    const id = setTimeout(() => setCameraReady(true), CAMERA_READY_FALLBACK_MS);
+    return () => clearTimeout(id);
+  }, [visible, phase, cameraReady, cameraKey]);
 
   // ── Camera actions ──────────────────────────────────────────────────────────
 
   const handleCapture = async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || !cameraReady || capturingRef.current) return;
+    capturingRef.current = true;
+    setCapturing(true);
     try {
-      const result = await cameraRef.current.takePictureAsync({
-        quality: CAPTURE_QUALITY, base64: false, skipProcessing: false,
-      });
+      // takePictureAsync can wait forever if the camera lost its session, so
+      // it is raced against a timer like the GPS fetch above.
+      const result = await withTimeout(
+        cameraRef.current.takePictureAsync({
+          quality: CAPTURE_QUALITY, base64: false, skipProcessing: false,
+        }),
+        CAPTURE_TIMEOUT_MS,
+      );
+      if (!result?.uri) throw new Error('no photo');
       setPhoto({ uri: result.uri });
       setPhase('preview');
     } catch {
-      Alert.alert('Camera Error', 'Could not capture photo. Please try again.');
+      restartCamera();
+      Alert.alert('Camera Error', 'The camera stopped responding and has been restarted. Please try again.');
+    } finally {
+      capturingRef.current = false;
+      setCapturing(false);
     }
   };
 
@@ -134,6 +162,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
 
   const handleRetake = useCallback(() => {
     setPhoto(null);
+    setCameraReady(false);   // a new camera mounts; wait for it to be live
     setPhase('camera');
   }, []);
 
@@ -192,9 +221,16 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
           {cameraPermission?.granted ? (
             <View style={{ flex: 1 }}>
               <CameraView
+                key={cameraKey}
                 ref={cameraRef}
                 style={StyleSheet.absoluteFill}
                 facing="front"
+                // animateShutter={false}: expo-camera's Android shutter flash paints the WHOLE
+                // window white and clears it 50 ms later by looking the window up again. If the
+                // photo returns fast and this view has already unmounted, the clear misses and
+                // the window stays white over every screen until the app is restarted.
+                // Seen on a OnePlus Nord: preview UI intact underneath a solid white layer.
+                animateShutter={false}
                 pictureSize={pictureSize}
                 onCameraReady={handleCameraReady}
               />
@@ -213,7 +249,9 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
               {/* Face guide */}
               <View style={S.faceGuideWrap} pointerEvents="none">
                 <View style={[S.faceOval, { borderColor: accent }]} />
-                <Text style={S.faceGuideHint}>Align your face in the oval</Text>
+                <Text style={S.faceGuideHint}>
+                  {cameraReady ? 'Align your face in the oval' : 'Starting camera…'}
+                </Text>
               </View>
 
               {/* Bottom bar */}
@@ -224,11 +262,14 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
                   compact
                 />
                 <TouchableOpacity
-                  style={[S.shutter, { borderColor: accent }]}
+                  style={[S.shutter, { borderColor: accent }, (!cameraReady || capturing) && S.shutterBusy]}
                   onPress={handleCapture}
+                  disabled={!cameraReady || capturing}
                   activeOpacity={0.8}
                 >
-                  <View style={[S.shutterInner, { backgroundColor: accent }]} />
+                  {cameraReady && !capturing
+                    ? <View style={[S.shutterInner, { backgroundColor: accent }]} />
+                    : <ActivityIndicator color={C.shellText} />}
                 </TouchableOpacity>
                 <View style={{ width: 80 }} />
               </View>
@@ -281,7 +322,7 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
               </View>
             )}
 
-            {(locationStatus === 'error' || locationStatus === 'denied') && (
+            {(locationStatus === 'error' || locationStatus === 'denied' || locationStatus === 'off') && (
               <View style={S.locErrorCard}>
                 {/* Header */}
                 <View style={S.locErrorHeader}>
@@ -289,7 +330,9 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
                   <Text style={S.locErrorTitle}>
                     {locationStatus === 'denied'
                       ? 'Location access denied'
-                      : 'Could not obtain GPS location'}
+                      : locationStatus === 'off'
+                        ? 'Location is turned off'
+                        : 'Could not obtain GPS location'}
                   </Text>
                 </View>
 
@@ -297,13 +340,19 @@ const PunchModal = ({ visible, logType, onConfirm, onCancel, punching }) => {
                 <Text style={S.locErrorBody}>
                   {locationStatus === 'denied'
                     ? 'Your organization requires GPS location for every check-in. Please enable location access in device settings.'
-                    : `GPS fix failed after ${locationRetries} attempt${locationRetries !== 1 ? 's' : ''}. Your server will reject a punch without coordinates.`}
+                    : locationStatus === 'off'
+                      ? 'Turn on location so this punch records where you are. Your organization may reject punches without it.'
+                      : `GPS fix failed after ${locationRetries} attempt${locationRetries !== 1 ? 's' : ''}. Your server will reject a punch without coordinates.`}
                 </Text>
 
                 {/* Action buttons */}
                 {locationStatus === 'denied' ? (
                   <TouchableOpacity style={S.locActionBtn} onPress={() => Linking.openSettings()}>
                     <Text style={S.locActionText}>Open Device Settings →</Text>
+                  </TouchableOpacity>
+                ) : locationStatus === 'off' ? (
+                  <TouchableOpacity style={S.locActionBtn} onPress={handleTurnOnLocation}>
+                    <Text style={S.locActionText}>Turn on location →</Text>
                   </TouchableOpacity>
                 ) : !retriesExhausted ? (
                   <TouchableOpacity style={S.locActionBtn} onPress={handleRetryLocation}>
@@ -406,7 +455,7 @@ const LocationIndicator = memo(({ status, location, compact }) => {
     <View style={S.camLocRow}>
       <Text style={S.camLocDot}>⚠️</Text>
       <Text style={S.camLocWarn}>
-        {status === 'denied' ? 'Location denied' : 'Location unavailable'}
+        {status === 'denied' ? 'Location denied' : status === 'off' ? 'Location is off' : 'Location unavailable'}
       </Text>
     </View>
   );
@@ -486,6 +535,7 @@ const S = themed(() => StyleSheet.create({
     backgroundColor: C.shellInputEdge,
   },
   shutterInner: { width: 56, height: 56, borderRadius: 28 },
+  shutterBusy:  { opacity: 0.6 },
 
   punchBadge:     { paddingHorizontal: 20, paddingVertical: 7, borderRadius: 50 },
   punchBadgeText: { color: C.onBrand, fontSize: 13, fontWeight: '800', letterSpacing: 1.5 },
