@@ -10,6 +10,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import LoginScreen from './src/screens/LoginScreen';
@@ -38,10 +39,11 @@ const MeStack = createStackNavigator();
 //   Tasks — to-dos assigned to them
 //   Me    — profile, plus everything else (leaves, shifts, salary, theme,
 //           logout). New features that don't need a tab go in Me.
+// [focused, unfocused] Ionicons names.
 const TAB_ICONS = {
-  Home:  '⏱',
-  Tasks: '✅',
-  Me:    '👤',
+  Home:  ['finger-print',  'finger-print-outline'],
+  Tasks: ['clipboard',     'clipboard-outline'],
+  Me:    ['person-circle', 'person-circle-outline'],
 };
 
 // The Me tab is a stack: the menu, and the screens it opens (each with a back
@@ -81,10 +83,8 @@ function MainTabs({ loginKey, handleLogout, handleSessionExpired }) {
         tabBarActiveTintColor: C.brand,
         tabBarInactiveTintColor: C.textMuted,
         tabBarLabelStyle: styles.tabLabel,
-        tabBarIcon: ({ focused }) => (
-          <Text style={[styles.tabIcon, focused && styles.tabIconActive]}>
-            {TAB_ICONS[route.name]}
-          </Text>
+        tabBarIcon: ({ focused, color }) => (
+          <Ionicons name={TAB_ICONS[route.name][focused ? 0 : 1]} size={24} color={color} />
         ),
       })}
     >
@@ -382,6 +382,4 @@ const styles = themed(() => StyleSheet.create({
     shadowRadius: 8,
   },
   tabLabel:     { fontSize: 11, fontWeight: '600' },
-  tabIcon:      { fontSize: 20 },
-  tabIconActive: { transform: [{ scale: 1.1 }] },
 }));

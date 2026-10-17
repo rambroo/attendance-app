@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, Modal,
-  TextInput, ActivityIndicator, RefreshControl, KeyboardAvoidingView, Platform,
+  TextInput, ActivityIndicator, RefreshControl, KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C, themed } from '../utils/theme';
 import {
   getMyTodos, getTodoOptions, getTodoDetail, setTodoStatus,
-  addTodoComment, createTodo, isDone, htmlToText,
+  addTodoComment, createTodo, isDone, htmlToText, getReferenceUrl,
 } from '../api/todoApi';
 import { formatDate } from '../api/attendanceApi';
 import DatePickerModal from '../components/DatePickerModal';
@@ -97,7 +98,10 @@ const TaskCard = memo(({ todo, user, onPress }) => {
           <Text style={s.metaText} numberOfLines={1}>From {todo.assigned_by_full_name || todo.assigned_by}</Text>
         ) : null}
         {todo.reference_type ? (
-          <Text style={s.metaText} numberOfLines={1}>{todo.reference_type} · {todo.reference_name}</Text>
+          <View style={s.metaItem}>
+            <Ionicons name="document-text-outline" size={13} color={C.textMuted} style={{ marginRight: 3 }} />
+            <Text style={s.metaText} numberOfLines={1}>{todo.reference_type} · {todo.reference_name}</Text>
+          </View>
         ) : null}
       </View>
     </TouchableOpacity>
@@ -184,8 +188,14 @@ const TaskDetail = ({ todo, user, statuses, onClose, onChanged, onSessionExpired
             {doc.date ? <InfoRow label="Due" value={formatDue(doc.date)} danger={isOverdue({ ...doc, status })} /> : null}
             {doc.priority ? <InfoRow label="Priority" value={doc.priority} /> : null}
             <InfoRow label="Assigned by" value={fromOther ? (doc.assigned_by_full_name || doc.assigned_by) : 'You'} />
-            {doc.reference_type ? <InfoRow label="Linked to" value={`${doc.reference_type} · ${doc.reference_name}`} /> : null}
           </View>
+
+          {doc.reference_type && doc.reference_name ? (
+            <>
+              <Text style={s.sectionLabel}>Linked document</Text>
+              <LinkedDoc doctype={doc.reference_type} name={doc.reference_name} onError={setError} />
+            </>
+          ) : null}
 
           <Text style={s.sectionLabel}>Status</Text>
           <View style={s.chipRow}>
@@ -252,6 +262,30 @@ const InfoRow = ({ label, value, danger }) => (
     <Text style={s.infoLabel}>{label}</Text>
     <Text style={[s.infoValue, danger && { color: C.error }]} numberOfLines={2}>{value}</Text>
   </View>
+);
+
+// Opens the linked document in the phone's browser (Chrome on most phones).
+// The browser has its own login, so the first time it may ask to sign in.
+const openReference = async (doctype, name, onError) => {
+  const url = await getReferenceUrl(doctype, name);
+  if (!url) return;
+  try {
+    await Linking.openURL(url);
+  } catch {
+    onError('Could not open the browser.');
+  }
+};
+
+const LinkedDoc = ({ doctype, name, onError }) => (
+  <TouchableOpacity style={s.linkCard} onPress={() => openReference(doctype, name, onError)} activeOpacity={0.75}>
+    <Ionicons name="document-text-outline" size={22} color={C.brand} />
+    <View style={{ flex: 1, marginLeft: 10 }}>
+      <Text style={s.linkType}>{doctype}</Text>
+      <Text style={s.linkName} numberOfLines={1}>{name}</Text>
+    </View>
+    <Text style={s.linkOpen}>View</Text>
+    <Ionicons name="open-outline" size={16} color={C.brand} style={{ marginLeft: 4 }} />
+  </TouchableOpacity>
 );
 
 // ── New task ──────────────────────────────────────────────────────────────────
@@ -379,7 +413,9 @@ export default function TasksScreen({ onSessionExpired }) {
   const handleOpen = useCallback((todo) => setOpenTask(todo), []);
   const handleCreated = useCallback(() => { setCreating(false); setView('active'); load(); }, [load]);
 
-  const list = data ? (view === 'active' ? data.active : data.done) : [];
+  const closed    = data ? data.done.filter((t) => t.status === 'Closed') : [];
+  const cancelled = data ? data.done.filter((t) => t.status === 'Cancelled') : [];
+  const list = !data ? [] : view === 'active' ? data.active : view === 'closed' ? closed : cancelled;
 
   return (
     <SafeAreaView style={s.root} edges={['top']}>
@@ -392,7 +428,7 @@ export default function TasksScreen({ onSessionExpired }) {
       </View>
 
       <View style={s.segment}>
-        {[['active', 'To do', data?.active.length], ['done', 'Done', data?.done.length]].map(([key, label, n]) => (
+        {[['active', 'To do', data?.active.length], ['closed', 'Closed', data && closed.length], ['cancelled', 'Cancelled', data && cancelled.length]].map(([key, label, n]) => (
           <TouchableOpacity
             key={key}
             style={[s.segBtn, view === key && s.segBtnOn]}
@@ -400,7 +436,7 @@ export default function TasksScreen({ onSessionExpired }) {
             activeOpacity={0.8}
           >
             <Text style={[s.segText, view === key && s.segTextOn]}>
-              {label}{n !== undefined ? `  ${n}` : ''}
+              {label}{data ? `  ${n}` : ''}
             </Text>
           </TouchableOpacity>
         ))}
@@ -418,12 +454,12 @@ export default function TasksScreen({ onSessionExpired }) {
           ListHeaderComponent={error ? <Text style={[s.errorText, { marginBottom: 12 }]}>{error}</Text> : null}
           ListEmptyComponent={data ? (
             <View style={s.empty}>
-              <Text style={s.emptyIcon}>{view === 'active' ? '🎉' : '📭'}</Text>
-              <Text style={s.emptyTitle}>{view === 'active' ? 'Nothing to do' : 'No finished tasks yet'}</Text>
+              <Ionicons name={view === 'active' ? 'sparkles-outline' : 'file-tray-outline'} size={44} color={C.textFaint} style={{ marginBottom: 10 }} />
+              <Text style={s.emptyTitle}>{view === 'active' ? 'Nothing to do' : view === 'closed' ? 'No closed tasks' : 'No cancelled tasks'}</Text>
               <Text style={s.emptySub}>
                 {view === 'active'
                   ? 'Tasks assigned to you will show up here. Tap ＋ New to add your own.'
-                  : 'Tasks you mark as done will show up here.'}
+                  : `Tasks marked ${view === 'closed' ? 'Closed' : 'Cancelled'} show up here. Open one to change its status.`}
               </Text>
             </View>
           ) : null}
@@ -467,7 +503,7 @@ const s = themed(() => StyleSheet.create({
   segment:     { flexDirection: 'row', margin: 16, marginBottom: 4, backgroundColor: C.card, borderRadius: 10, padding: 3, borderWidth: 1, borderColor: C.border },
   segBtn:      { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
   segBtnOn:    { backgroundColor: C.brand },
-  segText:     { fontSize: 14, fontWeight: '600', color: C.textSecond },
+  segText:     { fontSize: 13, fontWeight: '600', color: C.textSecond },
   segTextOn:   { color: C.onBrand },
 
   listBody:    { padding: 16, paddingTop: 12, flexGrow: 1 },
@@ -485,7 +521,6 @@ const s = themed(() => StyleSheet.create({
   pillText:    { fontSize: 11, fontWeight: '700' },
 
   empty:       { alignItems: 'center', marginTop: 60, paddingHorizontal: 30 },
-  emptyIcon:   { fontSize: 40, marginBottom: 10 },
   emptyTitle:  { fontSize: 16, fontWeight: '700', color: C.textPrimary, marginBottom: 6 },
   emptySub:    { fontSize: 13, color: C.textMuted, textAlign: 'center', lineHeight: 19 },
 
@@ -514,6 +549,11 @@ const s = themed(() => StyleSheet.create({
   commentBy:   { fontSize: 13, fontWeight: '700', color: C.textPrimary },
   commentTime: { fontSize: 11, color: C.textMuted },
   commentText: { fontSize: 14, color: C.textSecond, lineHeight: 20 },
+
+  linkCard:    { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 14 },
+  linkType:    { fontSize: 12, color: C.textMuted },
+  linkName:    { fontSize: 15, fontWeight: '700', color: C.textPrimary, marginTop: 1 },
+  linkOpen:    { fontSize: 13, fontWeight: '700', color: C.brand },
 
   bigInput:    { backgroundColor: C.card, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, fontSize: 15, color: C.textPrimary, minHeight: 110, textAlignVertical: 'top' },
   saveBtn:     { backgroundColor: C.brand, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 28 },

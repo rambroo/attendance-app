@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C, themed, THEMES, useThemeName } from '../utils/theme';
 import { getBuildTag } from '../utils/buildInfo';
@@ -12,22 +13,24 @@ const SECTIONS = [
   {
     title: 'My work',
     rows: [
-      { icon: '🌿', label: 'Leaves',     sub: 'Balance, apply, holidays',      route: 'Leaves' },
-      { icon: '📅', label: 'Shifts',     sub: 'Your shifts and requests',      route: 'Shifts' },
-      { icon: '💰', label: 'Salary slips', sub: 'Monthly pay slips',           route: 'Salary' },
+      { icon: 'leaf-outline', label: 'Leaves',     sub: 'Balance, apply, holidays',      route: 'Leaves' },
+      { icon: 'calendar-outline', label: 'Shifts',     sub: 'Your shifts and requests',      route: 'Shifts' },
+      { icon: 'wallet-outline', label: 'Salary slips', sub: 'Monthly pay slips',           route: 'Salary' },
     ],
   },
 ];
 
 const Row = ({ icon, label, sub, value, onPress, last, danger }) => (
   <TouchableOpacity style={[s.row, last && { borderBottomWidth: 0 }]} onPress={onPress} activeOpacity={0.7}>
-    <View style={s.rowIcon}><Text style={s.rowIconText}>{icon}</Text></View>
+    <View style={[s.rowIcon, danger && { backgroundColor: C.errorLight }]}>
+      <Ionicons name={icon} size={19} color={danger ? C.error : C.primary} />
+    </View>
     <View style={{ flex: 1 }}>
       <Text style={[s.rowLabel, danger && { color: C.error }]}>{label}</Text>
       {sub ? <Text style={s.rowSub}>{sub}</Text> : null}
     </View>
     {value ? <Text style={s.rowValue}>{value}</Text> : null}
-    {danger ? null : <Text style={s.chevron}>›</Text>}
+    {danger ? null : <Ionicons name="chevron-forward" size={18} color={C.textFaint} style={{ marginLeft: 4 }} />}
   </TouchableOpacity>
 );
 
@@ -78,8 +81,8 @@ export default function MeScreen({ navigation, onLogout }) {
 
         <Text style={s.sectionTitle}>App</Text>
         <View style={s.group}>
-          <Row icon="🎨" label="Theme" value={themeLabel} onPress={openThemes} />
-          <Row icon="⎋" label="Log out" onPress={onLogout} last danger />
+          <Row icon="color-palette-outline" label="Theme" value={themeLabel} onPress={openThemes} />
+          <Row icon="log-out-outline" label="Log out" onPress={onLogout} last danger />
         </View>
 
         <Text style={s.buildTag}>{getBuildTag()}</Text>
@@ -102,10 +105,8 @@ const s = themed(() => StyleSheet.create({
   group:       { backgroundColor: C.card, borderRadius: 14, borderWidth: 1, borderColor: C.border, marginBottom: 18, overflow: 'hidden' },
   row:         { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.divider },
   rowIcon:     { width: 36, height: 36, borderRadius: 10, backgroundColor: C.brandLight, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  rowIconText: { fontSize: 17 },
   rowLabel:    { fontSize: 15, fontWeight: '600', color: C.textPrimary },
   rowSub:      { fontSize: 12, color: C.textMuted, marginTop: 1 },
   rowValue:    { fontSize: 13, color: C.textMuted, marginRight: 6 },
-  chevron:     { fontSize: 22, color: C.textFaint, marginLeft: 4 },
   buildTag:    { textAlign: 'center', fontSize: 11, color: C.textFaint, marginTop: 4 },
 }));

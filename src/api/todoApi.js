@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import apiClient from './apiClient';
+import { getSiteUrl } from '../utils/siteConfig';
 
 // Tasks are Frappe's built-in ToDo. Frappe already limits a normal user to
 // to-dos assigned to them or by them, and lets them edit those, so this needs
@@ -86,7 +87,7 @@ export const getMyTodos = async () => {
   try {
     const [active, done] = await Promise.all([
       query('not in', 200, 'date asc, modified desc'),
-      query('in', 50, 'modified desc'),
+      query('in', 100, 'modified desc'),
     ]);
     const out = { user, active, done, offline: false };
     setCache(KEY, out);
@@ -145,6 +146,15 @@ export const createTodo = async ({ description, date, priority }) => {
     assigned_by: user,
   });
   return r.data.data;
+};
+
+// The desk page for a task's linked document (e.g. /app/sales-invoice/SINV-0001),
+// to open in the browser. Same rule the desk uses for its URLs.
+export const getReferenceUrl = async (doctype, name) => {
+  const site = await getSiteUrl();
+  if (!site || !doctype || !name) return null;
+  const slug = doctype.toLowerCase().replace(/ /g, '-');
+  return `${site}/app/${encodeURIComponent(slug)}/${encodeURIComponent(name)}`;
 };
 
 // ToDo descriptions and comments are HTML from the desk's editor. The app
