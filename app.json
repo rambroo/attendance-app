@@ -62,7 +62,8 @@
             "allowBackup": false
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {
