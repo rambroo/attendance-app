@@ -7,7 +7,7 @@ const AUTH_KEYS = [
   'authToken', 'apiKey', 'authMethod',
   'userEmail', 'userName', 'isLoggedIn',
   'sessionId', 'employeeId', 'employeeName',
-  'department', 'designation',
+  'department', 'designation', 'sessionUser',
 ];
 
 // Stored in SecureStore (Keystore-backed), not AsyncStorage

@@ -222,7 +222,7 @@ const sc = themed(() => StyleSheet.create({
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
-export default function SalaryScreen({ onLogout, onSessionExpired }) {
+export default function SalaryScreen({ onBack, onSessionExpired }) {
   const [slips,       setSlips]       = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
@@ -251,10 +251,10 @@ export default function SalaryScreen({ onLogout, onSessionExpired }) {
   return (
     <SafeAreaView style={s.root}>
       <View style={s.header}>
-        <Text style={s.headerTitle}>My Salary</Text>
-        <TouchableOpacity onPress={onLogout} style={s.logoutBtn}>
-          <Text style={s.logoutText}>Logout</Text>
+        <TouchableOpacity onPress={onBack} style={s.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Back">
+          <Text style={s.backText}>‹</Text>
         </TouchableOpacity>
+        <Text style={[s.headerTitle, { flex: 1 }]}>My Salary</Text>
       </View>
 
       {loading ? (
@@ -295,8 +295,8 @@ const s = themed(() => StyleSheet.create({
   root:         { flex: 1, backgroundColor: C.bg },
   header:       { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   headerTitle:  { fontSize: 20, fontWeight: '700', color: C.heroText },
-  logoutBtn:    { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.heroChip, borderRadius: 8 },
-  logoutText:   { color: C.heroText, fontSize: 13, fontWeight: '600' },
+  backBtn:    { marginRight: 10, paddingRight: 4 },
+  backText:   { color: C.heroText, fontSize: 30, lineHeight: 30, fontWeight: '300' },
   listHeader:   { fontSize: 13, color: C.textMuted, marginBottom: 10 },
   empty:        { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
   emptyIcon:    { fontSize: 52, marginBottom: 12 },

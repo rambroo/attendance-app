@@ -327,7 +327,10 @@ const CalendarCell = memo(({ date, attendance, checkins, isToday, onPress }) => 
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
-const HistoryScreen = ({ onLogout, onSessionExpired }) => {
+// Also rendered inside the Punch page with `embedded`: no header or scroll view
+// of its own (the page scrolls it), and the page's pull-to-refresh bumps
+// `refreshKey` to reload it.
+const HistoryScreen = ({ onBack, onSessionExpired, embedded = false, refreshKey = 0 }) => {
   const [selYear,    setSelYear]    = useState(NOW.getFullYear());
   const [selMonth,   setSelMonth]   = useState(NOW.getMonth() + 1);
   const [attendance, setAttendance] = useState([]);
@@ -372,6 +375,10 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
   useEffect(() => {
     loadData(selYear, selMonth, true);
   }, [selYear, selMonth]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (refreshKey) loadData(selYear, selMonth, false);
+  }, [refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Month navigation ────────────────────────────────────────────────────────
 
@@ -473,6 +480,9 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
 
   // ── Loading ─────────────────────────────────────────────────────────────────
 
+  if (loading && embedded) {
+    return <ActivityIndicator color={C.brand} style={{ marginVertical: 30 }} />;
+  }
   if (loading) {
     return (
       <View style={S.centered}>
@@ -484,30 +494,17 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
-  return (
-    <View style={S.container}>
-      <StatusBar barStyle={C.statusBar} backgroundColor={C.primary} />
+  const modal = (
+    <DayDetailModal
+      visible={modalOpen}
+      date={modalDate}
+      attendance={modalAtt}
+      onClose={closeModal}
+    />
+  );
 
-      <DayDetailModal
-        visible={modalOpen}
-        date={modalDate}
-        attendance={modalAtt}
-        onClose={closeModal}
-      />
-
-      <View style={S.header}>
-        <Text style={S.headerTitle}>History</Text>
-        {isOffline && (
-          <View style={S.offlinePill}><Text style={S.offlineText}>⚡ Offline</Text></View>
-        )}
-      </View>
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.brand} />
-        }
-      >
+  const content = (
+    <>
         {/* Month navigator */}
         <View style={S.monthNav}>
           <TouchableOpacity onPress={goPrev} style={S.navBtn} activeOpacity={0.7}>
@@ -597,6 +594,41 @@ const HistoryScreen = ({ onLogout, onSessionExpired }) => {
           ))}
         </View>
 
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <View>
+        {modal}
+        {content}
+      </View>
+    );
+  }
+
+  return (
+    <View style={S.container}>
+      <StatusBar barStyle={C.statusBar} backgroundColor={C.primary} />
+
+      {modal}
+
+      <View style={S.header}>
+        <TouchableOpacity onPress={onBack} style={S.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Back">
+          <Text style={S.backText}>‹</Text>
+        </TouchableOpacity>
+        <Text style={[S.headerTitle, { flex: 1 }]}>Attendance</Text>
+        {isOffline && (
+          <View style={S.offlinePill}><Text style={S.offlineText}>⚡ Offline</Text></View>
+        )}
+      </View>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.brand} />
+        }
+      >
+        {content}
         <View style={{ height: 30 }} />
       </ScrollView>
     </View>
@@ -616,6 +648,8 @@ const S = themed(() => StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
   headerTitle: { fontSize: 22, fontWeight: '800', color: C.heroText },
+  backBtn:     { marginRight: 10, paddingRight: 4 },
+  backText:    { color: C.heroText, fontSize: 30, lineHeight: 30, fontWeight: '300' },
   offlinePill: {
     backgroundColor: C.heroWarnChip,
     paddingHorizontal: 10, paddingVertical: 4, borderRadius: 50,

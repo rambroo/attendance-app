@@ -22,8 +22,7 @@ import {
 } from '../utils/punchQueue';
 import { getStoredUser } from '../api/authApi';
 import PunchModal from '../components/PunchModal';
-import ThemePicker from '../components/ThemePicker';
-import { getBuildTag } from '../utils/buildInfo';
+import HistoryScreen from './HistoryScreen';
 
 // How often to retry a stuck queue while the screen is open. The app has no
 // connectivity listener (adding one would mean a new native module and a store
@@ -131,19 +130,19 @@ const PunchButton = memo(({ isPunchIn, onPress, disabled }) => {
 });
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-const HomeScreen = ({ onLogout, onSessionExpired }) => {
+const HomeScreen = ({ onOpenProfile, onSessionExpired }) => {
   const employeeRef = useRef(null); // avoids stale-closure in loadData
 
   const [employee, setEmployee]         = useState(null);
   const [checkins, setCheckins]         = useState([]);
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
+  const [attRefresh, setAttRefresh]     = useState(0);   // reloads the attendance calendar
   const [error, setError]               = useState('');
   const [lastMsg, setLastMsg]           = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [isOffline, setIsOffline]       = useState(false);
   const [pending, setPending]           = useState([]);   // punches awaiting sync
-  const [themesOpen, setThemesOpen]     = useState(false);
 
   // Mirrors the merged checkin list so callbacks can read it without going
   // stale, the same reason employeeRef exists.
@@ -266,6 +265,7 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
+    setAttRefresh((n) => n + 1);
     syncNow();
     loadData(false);
   }, [loadData, syncNow]);
@@ -276,8 +276,6 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
   }, []);
 
   const handleCloseModal = useCallback(() => setModalVisible(false), []);
-  const handleOpenThemes  = useCallback(() => setThemesOpen(true), []);
-  const handleCloseThemes = useCallback(() => setThemesOpen(false), []);
 
   // Record the punch locally and return control to the user immediately. The
   // upload and the server call happen afterwards, in the background, with
@@ -368,8 +366,6 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
     <View style={styles.container}>
       <StatusBar barStyle={C.statusBar} backgroundColor={C.primary} />
 
-      <ThemePicker visible={themesOpen} onClose={handleCloseThemes} />
-
       <PunchModal
         visible={modalVisible}
         logType={nextType}
@@ -380,7 +376,14 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
 
       {/* ── Header ── */}
       <View style={styles.topBar}>
-        <View style={styles.topBarLeft}>
+        {/* Tapping your name opens the Me tab (attendance, leaves, salary, …) */}
+        <TouchableOpacity
+          style={styles.topBarLeft}
+          onPress={onOpenProfile}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+          accessibilityLabel="Open my profile"
+        >
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarText}>
               {(employee?.employee_name || 'U')[0].toUpperCase()}
@@ -393,21 +396,8 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
               ? <Text style={styles.designText}>{employee.designation}</Text>
               : null}
           </View>
-        </View>
-        <View style={styles.topBarActions}>
-          <TouchableOpacity
-            style={styles.themeBtn}
-            onPress={handleOpenThemes}
-            activeOpacity={0.75}
-            accessibilityRole="button"
-            accessibilityLabel="Change appearance"
-          >
-            <Text style={styles.themeIcon}>◐</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.logoutBtn} onPress={onLogout} activeOpacity={0.75}>
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
+        <Text style={styles.profileChevron}>›</Text>
       </View>
 
       <ScrollView
@@ -551,9 +541,9 @@ const HomeScreen = ({ onLogout, onSessionExpired }) => {
             : null}
         </View>
 
-        {/* Which code this phone is running — see utils/buildInfo.js. Here as
-            well as on Login, because logged-in staff never see Login again. */}
-        <Text style={styles.buildTag}>{getBuildTag()}</Text>
+        {/* ── This month's attendance (calendar, summary, day details) ── */}
+        <Text style={styles.sectionTitle}>My attendance</Text>
+        <HistoryScreen embedded refreshKey={attRefresh} onSessionExpired={onSessionExpired} />
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -567,6 +557,7 @@ const styles = themed(() => StyleSheet.create({
   centered:    { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
   loadingText: { marginTop: 12, fontSize: 15, color: C.textMuted },
   scrollContent: { paddingBottom: 16 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: C.textSecond, textTransform: 'uppercase', letterSpacing: 0.6, marginHorizontal: 20, marginTop: 22, marginBottom: 2 },
 
   // ── Header ──
   topBar: {
@@ -586,6 +577,7 @@ const styles = themed(() => StyleSheet.create({
   nameText:     { fontSize: 16, fontWeight: '700', color: C.heroText, marginTop: 1 },
   designText:   { fontSize: 11, color: C.heroTextMuted, marginTop: 1 },
   topBarActions: { flexDirection: 'row', alignItems: 'center' },
+  profileChevron: { color: C.heroTextMuted, fontSize: 26, marginLeft: 8 },
   themeBtn: {
     width: 32, height: 32, borderRadius: 16, marginRight: 8,
     borderWidth: 1, borderColor: C.heroBorder,

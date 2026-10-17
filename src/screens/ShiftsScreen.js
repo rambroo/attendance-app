@@ -442,7 +442,7 @@ const RequestsTab = memo(({ employeeId, onSessionExpired, refreshTick, onNewRequ
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
-export default function ShiftsScreen({ onLogout, onSessionExpired }) {
+export default function ShiftsScreen({ onBack, onSessionExpired }) {
   const [activeTab,    setActiveTab]    = useState(0);
   const [employeeId,   setEmployeeId]   = useState('');
   const [showForm,     setShowForm]     = useState(false);
@@ -465,10 +465,10 @@ export default function ShiftsScreen({ onLogout, onSessionExpired }) {
   return (
     <SafeAreaView style={s.root}>
       <View style={s.header}>
-        <Text style={s.headerTitle}>My Shifts</Text>
-        <TouchableOpacity onPress={onLogout} style={s.logoutBtn}>
-          <Text style={s.logoutText}>Logout</Text>
+        <TouchableOpacity onPress={onBack} style={s.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} accessibilityLabel="Back">
+          <Text style={s.backText}>‹</Text>
         </TouchableOpacity>
+        <Text style={[s.headerTitle, { flex: 1 }]}>My Shifts</Text>
       </View>
 
       <View style={s.tabBar}>
@@ -507,8 +507,8 @@ const s = themed(() => StyleSheet.create({
   root:          { flex: 1, backgroundColor: C.bg },
   header:        { backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   headerTitle:   { fontSize: 20, fontWeight: '700', color: C.heroText },
-  logoutBtn:     { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: C.heroChip, borderRadius: 8 },
-  logoutText:    { color: C.heroText, fontSize: 13, fontWeight: '600' },
+  backBtn:    { marginRight: 10, paddingRight: 4 },
+  backText:   { color: C.heroText, fontSize: 30, lineHeight: 30, fontWeight: '300' },
   tabBar:        { flexDirection: 'row', backgroundColor: C.card, borderBottomWidth: 1, borderBottomColor: C.border },
   tabBtn:        { flex: 1, paddingVertical: 12, alignItems: 'center' },
   tabBtnActive:  { borderBottomWidth: 2, borderBottomColor: C.brand },

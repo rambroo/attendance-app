@@ -7,17 +7,19 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createStackNavigator } from '@react-navigation/stack';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
-import HistoryScreen from './src/screens/HistoryScreen';
 import LeavesScreen from './src/screens/LeavesScreen';
 import SalaryScreen from './src/screens/SalaryScreen';
 import ShiftsScreen from './src/screens/ShiftsScreen';
 import KioskScreen from './src/screens/KioskScreen';
+import TasksScreen from './src/screens/TasksScreen';
+import MeScreen from './src/screens/MeScreen';
 import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from './src/api/authApi';
 import { isSiteConfigured, isKioskMode, clearSiteConfig, getSiteUrl, saveSiteConfig } from './src/utils/siteConfig';
 import { resetServerCaps } from './src/utils/serverCaps';
@@ -29,14 +31,39 @@ import { startLocationTracking, stopLocationTracking } from './src/utils/locatio
 SplashScreen.preventAutoHideAsync();
 
 const Tab = createBottomTabNavigator();
+const MeStack = createStackNavigator();
 
+// Three tabs, so the bar stays readable as the app grows:
+//   Punch — punching, today's log and this month's attendance calendar
+//   Tasks — to-dos assigned to them
+//   Me    — profile, plus everything else (leaves, shifts, salary, theme,
+//           logout). New features that don't need a tab go in Me.
 const TAB_ICONS = {
-  Home:    '⏱',
-  History: '📋',
-  Leaves:  '🌿',
-  Salary:  '💰',
-  Shifts:  '📅',
+  Home:  '⏱',
+  Tasks: '✅',
+  Me:    '👤',
 };
+
+// The Me tab is a stack: the menu, and the screens it opens (each with a back
+// button). Opening one keeps the tab bar visible.
+function MeTab({ handleLogout, handleSessionExpired }) {
+  return (
+    <MeStack.Navigator screenOptions={{ headerShown: false }}>
+      <MeStack.Screen name="MeHome">
+        {({ navigation }) => <MeScreen navigation={navigation} onLogout={handleLogout} />}
+      </MeStack.Screen>
+      <MeStack.Screen name="Leaves">
+        {({ navigation }) => <LeavesScreen onBack={navigation.goBack} onSessionExpired={handleSessionExpired} />}
+      </MeStack.Screen>
+      <MeStack.Screen name="Shifts">
+        {({ navigation }) => <ShiftsScreen onBack={navigation.goBack} onSessionExpired={handleSessionExpired} />}
+      </MeStack.Screen>
+      <MeStack.Screen name="Salary">
+        {({ navigation }) => <SalaryScreen onBack={navigation.goBack} onSessionExpired={handleSessionExpired} />}
+      </MeStack.Screen>
+    </MeStack.Navigator>
+  );
+}
 
 // Bottom tab bar — adds extra bottom padding so it never overlaps an
 // Android 3-button nav bar (or iPhone home indicator). Must live inside
@@ -62,19 +89,15 @@ function MainTabs({ loginKey, handleLogout, handleSessionExpired }) {
       })}
     >
       <Tab.Screen name="Home" options={{ tabBarLabel: 'Punch' }}>
-        {() => <HomeScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+        {({ navigation }) => (
+          <HomeScreen onOpenProfile={() => navigation.navigate('Me', { screen: 'MeHome' })} onSessionExpired={handleSessionExpired} />
+        )}
       </Tab.Screen>
-      <Tab.Screen name="History" options={{ tabBarLabel: 'Attendance' }}>
-        {() => <HistoryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+      <Tab.Screen name="Tasks" options={{ tabBarLabel: 'Tasks' }}>
+        {() => <TasksScreen onSessionExpired={handleSessionExpired} />}
       </Tab.Screen>
-      <Tab.Screen name="Leaves" options={{ tabBarLabel: 'Leaves' }}>
-        {() => <LeavesScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
-      </Tab.Screen>
-      <Tab.Screen name="Salary" options={{ tabBarLabel: 'Salary' }}>
-        {() => <SalaryScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
-      </Tab.Screen>
-      <Tab.Screen name="Shifts" options={{ tabBarLabel: 'Shifts' }}>
-        {() => <ShiftsScreen onLogout={handleLogout} onSessionExpired={handleSessionExpired} />}
+      <Tab.Screen name="Me" options={{ tabBarLabel: 'Me' }}>
+        {() => <MeTab handleLogout={handleLogout} handleSessionExpired={handleSessionExpired} />}
       </Tab.Screen>
     </Tab.Navigator>
   );
@@ -84,7 +107,7 @@ const AUTH_KEYS = [
   'authToken', 'apiKey', 'authMethod',
   'userEmail', 'userName', 'isLoggedIn',
   'sessionId', 'employeeId', 'employeeName',
-  'department', 'designation',
+  'department', 'designation', 'sessionUser',
 ];
 
 // Catches unexpected render/runtime errors so a release build shows a
