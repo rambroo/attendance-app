@@ -18,9 +18,8 @@ import LeavesScreen from './src/screens/LeavesScreen';
 import SalaryScreen from './src/screens/SalaryScreen';
 import ShiftsScreen from './src/screens/ShiftsScreen';
 import KioskScreen from './src/screens/KioskScreen';
-import SiteSetupScreen from './src/screens/SiteSetupScreen';
 import { isAuthenticated, logout, silentReLogin, clearSavedCredentials } from './src/api/authApi';
-import { isSiteConfigured, isKioskMode, clearSiteConfig } from './src/utils/siteConfig';
+import { isSiteConfigured, isKioskMode, clearSiteConfig, getSiteUrl, saveSiteConfig } from './src/utils/siteConfig';
 import { resetServerCaps } from './src/utils/serverCaps';
 import { setSessionExpiredHandler } from './src/api/apiClient';
 import { C, themed, useThemeName, loadSavedTheme } from './src/utils/theme';
@@ -199,17 +198,6 @@ function Root() {
     if (appReady) await SplashScreen.hideAsync();
   }, [appReady]);
 
-  // Called by SiteSetupScreen with { mode: 'employee' | 'kiosk' }
-  const handleSiteConfigured = useCallback(({ mode }) => {
-    setSiteReady(true);
-    if (mode === 'kiosk') {
-      setKioskMode(true);
-    } else {
-      setKioskMode(false);
-      setLoggedIn(false);
-    }
-  }, []);
-
   // Called by KioskScreen admin exit
   const handleExitKiosk = useCallback((action) => {
     setKioskMode(false);
@@ -221,30 +209,21 @@ function Root() {
     }
   }, []);
 
-  // Clear site + auth and go back to site setup
-  const handleChangeSite = useCallback(() => {
-    Alert.alert(
-      'Change Site',
-      'This will log you out and let you connect to a different site.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Change Site',
-          style: 'destructive',
-          onPress: async () => {
-            // Caps are keyed on siteUrl, so drop them before it is cleared.
-            await resetServerCaps();
-            await Promise.all([
-              clearSiteConfig(),
-              AsyncStorage.multiRemove(AUTH_KEYS),
-              clearSavedCredentials(),
-            ]);
-            setSiteReady(false);
-            setLoggedIn(false);
-          },
-        },
-      ]
-    );
+  // Called by the login page with a validated site address, before signing in.
+  // A different address means a different organisation: drop the previous
+  // site's login and cached capabilities so nothing carries across.
+  const handleUseSite = useCallback(async (url) => {
+    const current = await getSiteUrl();
+    if (current && current !== url) {
+      await resetServerCaps();
+      await Promise.all([
+        clearSiteConfig(),
+        AsyncStorage.multiRemove(AUTH_KEYS),
+        clearSavedCredentials(),
+      ]);
+    }
+    await saveSiteConfig(url, url.replace(/^https?:\/\//, ''));
+    setSiteReady(true);
   }, []);
 
   const handleLoginSuccess = useCallback(() => {
@@ -300,17 +279,8 @@ function Root() {
     );
   }
 
-  // ── Site setup ──
-  if (!siteReady) {
-    return (
-      <View key={themeName} style={{ flex: 1 }} onLayout={onLayoutRootView}>
-        <SiteSetupScreen onSiteConfigured={handleSiteConfigured} />
-      </View>
-    );
-  }
-
   // ── Kiosk mode ──
-  if (kioskMode) {
+  if (kioskMode && siteReady) {
     return (
       <GestureHandlerRootView key={themeName} style={{ flex: 1 }}>
         <SafeAreaProvider>
@@ -328,7 +298,7 @@ function Root() {
       <View key={themeName} style={{ flex: 1 }} onLayout={onLayoutRootView}>
         <LoginScreen
           onLoginSuccess={handleLoginSuccess}
-          onChangeSite={handleChangeSite}
+          onUseSite={handleUseSite}
           onKioskMode={handleSwitchToKiosk}
         />
       </View>

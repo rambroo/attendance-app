@@ -6,17 +6,26 @@ import {
 } from 'react-native';
 import { encode as base64Encode } from 'base-64';
 import { loginWithPassword } from '../api/authApi';
-import { getSiteLabel, saveKioskConfig, kioskPinProblem } from '../utils/siteConfig';
+import { getSiteUrl, saveKioskConfig, kioskPinProblem, validateAndConnect } from '../utils/siteConfig';
 import { C, themed } from '../utils/theme';
 import { getBuildTag } from '../utils/buildInfo';
 
-const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
+// Site address, email and password on one page. Each error is shown under the
+// field it belongs to: a bad or unreachable address under the address, a
+// rejected email/password under the password, anything else at the bottom.
+//
+// onUseSite(url) is called with a validated address before signing in. App.js
+// saves it, and clears the previous site's data if the address changed.
+const LoginScreen = ({ onLoginSuccess, onUseSite, onKioskMode }) => {
+  const [siteUrl, setSiteUrl]       = useState('');
   const [email, setEmail]           = useState('');
   const [password, setPassword]     = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading]       = useState(false);
+  const [urlError, setUrlError]     = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   const [error, setError]           = useState('');
-  const [siteLabel, setSiteLabel]   = useState('');
 
   // Kiosk mode setup modal
   const [kioskModal,   setKioskModal]   = useState(false);
@@ -26,9 +35,34 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
   const [kioskLoading, setKioskLoading] = useState(false);
   const [kioskError,   setKioskError]   = useState('');
 
+  // Returning users only have to type their password.
   useEffect(() => {
-    getSiteLabel().then((l) => setSiteLabel(l || ''));
+    getSiteUrl().then((u) => { if (u) setSiteUrl(u.replace(/^https:\/\//, '')); });
   }, []);
+
+  const clearErrors = () => { setUrlError(''); setEmailError(''); setPasswordError(''); setError(''); };
+
+  // Validate the address and hand it to App.js. Shows the error under the
+  // address field and returns false if the site can't be used.
+  const connectSite = async () => {
+    if (!siteUrl.trim()) { setUrlError("Enter your organisation's site address."); return false; }
+    try {
+      const validated = await validateAndConnect(siteUrl);
+      await onUseSite(validated);
+      return true;
+    } catch (err) {
+      setUrlError(err.message || 'Could not connect to that site.');
+      return false;
+    }
+  };
+
+  const openKioskSetup = async () => {
+    clearErrors();
+    setLoading(true);
+    const ok = await connectSite();
+    setLoading(false);
+    if (ok) { setKioskError(''); setKioskModal(true); }
+  };
 
   const handleKioskSetup = async () => {
     setKioskError('');
@@ -49,15 +83,21 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
   };
 
   const handleLogin = async () => {
-    setError('');
-    if (!email.trim())    { setError('Please enter your email.');    return; }
-    if (!password.trim()) { setError('Please enter your password.'); return; }
+    clearErrors();
+    let missing = false;
+    if (!siteUrl.trim())  { setUrlError("Enter your organisation's site address."); missing = true; }
+    if (!email.trim())    { setEmailError('Enter your work email.'); missing = true; }
+    if (!password.trim()) { setPasswordError('Enter your password.'); missing = true; }
+    if (missing) return;
+
     setLoading(true);
     try {
+      if (!(await connectSite())) return;
       const result = await loginWithPassword(email.trim(), password);
       onLoginSuccess(result);
     } catch (err) {
-      setError(err.message || 'Login failed.');
+      if (err.authFailed) setPasswordError('Email or password is incorrect.');
+      else setError(err.message || 'Sign-in failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -82,45 +122,53 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
           <Text style={styles.appSubtitle}>TechNiti · Punch In & Out</Text>
         </View>
 
-        {/* ── Site pill ── */}
-        {siteLabel ? (
-          <View style={styles.sitePill}>
-            <Text style={styles.siteDot}>●</Text>
-            <Text style={styles.siteLabel} numberOfLines={1}>{siteLabel}</Text>
-            <TouchableOpacity onPress={onChangeSite} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.changeText}>Change</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
         {/* ── Login Card ── */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Sign In</Text>
           <Text style={styles.cardSubtitle}>Use your ERPNext credentials</Text>
 
           <View style={styles.inputGroup}>
+            <Text style={styles.label}>Site address</Text>
+            <TextInput
+              style={[styles.input, urlError ? styles.inputError : null]}
+              placeholder="yourcompany.erpnext.com"
+              value={siteUrl}
+              onChangeText={(t) => { setSiteUrl(t); setUrlError(''); }}
+              keyboardType="url"
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholderTextColor={C.textMuted}
+              returnKeyType="next"
+            />
+            {urlError
+              ? <Text style={styles.fieldError}>{urlError}</Text>
+              : <Text style={styles.fieldHint}>The address you use to open ERPNext in a browser. Ask HR if you're not sure.</Text>}
+          </View>
+
+          <View style={styles.inputGroup}>
             <Text style={styles.label}>Work Email</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, emailError ? styles.inputError : null]}
               placeholder="you@company.com"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => { setEmail(t); setEmailError(''); }}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
               placeholderTextColor={C.textMuted}
               returnKeyType="next"
             />
+            {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
           </View>
 
           <View style={styles.inputGroup}>
             <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordRow}>
+            <View style={[styles.passwordRow, passwordError ? styles.inputError : null]}>
               <TextInput
                 style={styles.passwordInput}
                 placeholder="Enter your password"
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(t) => { setPassword(t); setPasswordError(''); }}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -137,6 +185,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
                 <Text style={styles.eyeIcon}>{showPassword ? '🙈' : '👁️'}</Text>
               </TouchableOpacity>
             </View>
+            {passwordError ? <Text style={styles.fieldError}>{passwordError}</Text> : null}
           </View>
 
           {error ? (
@@ -161,7 +210,7 @@ const LoginScreen = ({ onLoginSuccess, onChangeSite, onKioskMode }) => {
           Contact HR if you cannot access your account.
         </Text>
 
-        <TouchableOpacity style={styles.kioskLink} onPress={() => { setKioskError(''); setKioskModal(true); }} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.kioskLink} onPress={openKioskSetup} disabled={loading} activeOpacity={0.7}>
           <Text style={styles.kioskLinkText}>🏫  Switch to Kiosk Mode</Text>
         </TouchableOpacity>
 
@@ -315,6 +364,8 @@ const styles = themed(() => StyleSheet.create({
   hint: { textAlign: 'center', fontSize: 12, color: C.textMuted, lineHeight: 18 },
 
   kioskLink: { alignSelf: 'center', marginTop: 20, paddingVertical: 10, paddingHorizontal: 20 },
+  fieldError: { color: C.errorText, fontSize: 12, fontWeight: '500', marginTop: 6 },
+  fieldHint:  { color: C.textMuted, fontSize: 11, marginTop: 6, lineHeight: 16 },
   kioskLinkText: { fontSize: 13, color: C.textMuted, fontWeight: '500' },
   buildTag: { alignSelf: 'center', marginTop: 12, fontSize: 11, color: C.textMuted, opacity: 0.8 },
 
